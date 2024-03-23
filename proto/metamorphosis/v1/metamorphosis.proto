@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package metamorphosis.v1;
+
+option go_package = "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1;metamorphosisv1";
+
+message Record {
+  string id = 1;
+  map<string, string> headers = 2;
+  bytes body = 3;
+  string sequence = 4;
+}

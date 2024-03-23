@@ -1,0 +1,8 @@
+---
+version: v1
+plugins:
+  - name: go
+    out: gen
+    opt:
+      - paths=import
+      - module=github.com/binarymatt/metamorphosis/gen
