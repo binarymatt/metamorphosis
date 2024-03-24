@@ -124,7 +124,7 @@ func TestFetchRecords(t *testing.T) {
 
 	kc := mocks.NewKinesisAPI(t)
 	dc := mocks.NewDynamoDBAPI(t)
-	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc).WithMaxRecords(1)
+	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc)
 	m := New(config, 0)
 
 	dc.EXPECT().GetItem(ctx, &dynamodb.GetItemInput{
@@ -186,7 +186,7 @@ func TestFetchRecords(t *testing.T) {
 	expectedRecords := []*metamorphosisv1.Record{&metaRecord}
 
 	must.Nil(t, m.reservation)
-	records, err := m.FetchRecords(ctx)
+	records, err := m.FetchRecords(ctx, 1)
 	must.NotNil(t, m.reservation)
 	must.NoError(t, err)
 	must.Eq(t, expectedRecords, records, must.Cmp(protocmp.Transform()))

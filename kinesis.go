@@ -77,7 +77,18 @@ func (m *Metamorphosis) PutRecords(ctx context.Context, records ...*metamorphosi
 	return err
 }
 
-func (m *Metamorphosis) FetchRecords(ctx context.Context) ([]*metamorphosisv1.Record, error) {
+func (m *Metamorphosis) FetchRecord(ctx context.Context) (*metamorphosisv1.Record, error) {
+	records, err := m.FetchRecords(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) > 0 {
+		return records[0], nil
+	}
+	return nil, nil
+}
+
+func (m *Metamorphosis) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv1.Record, error) {
 	kc := m.config.kinesisClient
 	m.log.Info("starting fetch records", "reservation", m.reservation)
 	if m.reservation == nil {
@@ -96,7 +107,7 @@ func (m *Metamorphosis) FetchRecords(ctx context.Context) ([]*metamorphosisv1.Re
 	input := &kinesis.GetRecordsInput{
 		ShardIterator: iterator,
 		StreamARN:     &m.config.StreamARN,
-		Limit:         &m.config.MaxRecords,
+		Limit:         &max,
 	}
 	output, err := kc.GetRecords(ctx, input)
 	if err != nil {

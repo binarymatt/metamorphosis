@@ -12,7 +12,7 @@ test:
 
 .PHONY: integration
 integration:
-	env METAMORPHOSIS_INTEGRATION_TESTS=true go test -v ./integration_test.go
+	env METAMORPHOSIS_INTEGRATION_TESTS=true gotestsum -- -v ./...
 
 .PHONY: infra
 infra:

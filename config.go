@@ -28,7 +28,6 @@ type Config struct {
 	ShardID            string
 	ReservationTimeout time.Duration
 	RenewTime          time.Duration
-	MaxRecords         int32
 	kinesisClient      KinesisAPI
 	dynamoClient       DynamoDBAPI
 }
@@ -46,7 +45,6 @@ func (c *Config) Copy() *Config {
 		ShardID:            c.ShardID,
 		ReservationTimeout: c.ReservationTimeout,
 		RenewTime:          c.RenewTime,
-		MaxRecords:         c.MaxRecords,
 	}
 }
 func (c *Config) WithGroup(id string) *Config {
@@ -71,12 +69,6 @@ func (c *Config) WithTableName(table string) *Config {
 }
 func (c *Config) WithReservationTimeout(d time.Duration) *Config {
 	c.ReservationTimeout = d
-	return c
-}
-func (c *Config) WithMaxRecords(count int32) *Config {
-	if count > 0 {
-		c.MaxRecords = count
-	}
 	return c
 }
 func (c *Config) WithRenewTime(d time.Duration) *Config {
@@ -108,9 +100,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 func (c *Config) Bootstrap(ctx context.Context) error {
-	if c.MaxRecords == 0 {
-		c.MaxRecords = 1
-	}
 	if c.ReservationTimeout == (0 * time.Second) {
 		c.ReservationTimeout = 1 * time.Minute
 	}

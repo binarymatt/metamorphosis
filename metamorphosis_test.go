@@ -61,15 +61,6 @@ func TestInit_ReserveShard(t *testing.T) {
 	}, c.reservation)
 }
 
-func TestInit_CloseFunction(t *testing.T) {
-	t.Skip()
-	dc := mocks.NewDynamoDBAPI(t)
-	c := New(NewConfig().WithDynamoClient(dc), 0)
-	closer, err := c.Init(context.Background())
-	must.NoError(t, err)
-	must.NotNil(t, closer)
-}
-
 func TestReserveShard(t *testing.T) {
 	now := time.Now()
 	Now = func() time.Time {

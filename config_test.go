@@ -52,11 +52,9 @@ func TestBootstrap(t *testing.T) {
 		StreamARN:        "arn",
 		ReservationTable: "table",
 	}
-	must.Zero(t, config.MaxRecords)
 	must.Zero(t, config.ReservationTimeout)
 	err := config.Bootstrap(context.Background())
 	must.NoError(t, err)
-	must.Eq[int32](t, 1, config.MaxRecords)
 	must.Eq(t, 1*time.Minute, config.ReservationTimeout)
 	must.NotNil(t, config.kinesisClient)
 	must.NotNil(t, config.dynamoClient)
