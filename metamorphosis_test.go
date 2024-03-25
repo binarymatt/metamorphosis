@@ -14,7 +14,9 @@ import (
 	ktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/shoenig/test/must"
 	"github.com/stretchr/testify/mock"
+	"google.golang.org/protobuf/proto"
 
+	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 	"github.com/binarymatt/metamorphosis/mocks"
 )
 
@@ -324,5 +326,30 @@ func TestRetrieveRandomShardID(t *testing.T) {
 			must.Eq(t, tc.shard, s)
 		}))
 	}
+
+}
+
+func TestProtoInProto(t *testing.T) {
+	first := &metamorphosisv1.Record{
+		Id: "first",
+	}
+	data, err := proto.Marshal(first)
+	must.NoError(t, err)
+	second := &metamorphosisv1.Record{
+		Id:   "second",
+		Body: data,
+	}
+	s, err := proto.Marshal(second)
+	must.NoError(t, err)
+	s2 := metamorphosisv1.Record{}
+	err = proto.Unmarshal(s, &s2)
+	must.NoError(t, err)
+	must.Eq(t, "second", s2.Id)
+
+	f1 := metamorphosisv1.Record{}
+	err = proto.Unmarshal(s2.Body, &f1)
+	must.NoError(t, err)
+
+	must.Eq(t, "first", f1.Id)
 
 }

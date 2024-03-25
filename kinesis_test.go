@@ -115,7 +115,7 @@ func TestPutRecords(t *testing.T) {
 		},
 	}).
 		Return(&kinesis.PutRecordsOutput{}, nil).Once()
-	err = m.PutRecords(context.Background(), record)
+	err = m.PutRecords(context.Background(), nil, record)
 	must.NoError(t, err)
 }
 
