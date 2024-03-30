@@ -30,8 +30,9 @@ type KinesisAPI interface {
 }
 
 type PutRecordsRequest struct {
-	Records []*metamorphosisv1.Record
-	Stream  string
+	Records    []*metamorphosisv1.Record
+	StreamName *string
+	StreamArn  *string
 }
 
 func (m *Metamorphosis) getShardIterator(ctx context.Context) (*string, error) {
@@ -75,9 +76,10 @@ func (m *Metamorphosis) PutRecords(ctx context.Context, req *PutRecordsRequest) 
 		kinesisRecords[i] = entry
 	}
 	params := &kinesis.PutRecordsInput{
-		Records: kinesisRecords,
+		Records:    kinesisRecords,
+		StreamARN:  req.StreamArn,
+		StreamName: req.StreamName,
 	}
-	params.StreamName = &req.Stream
 	_, err := kc.PutRecords(ctx, params)
 	return err
 }

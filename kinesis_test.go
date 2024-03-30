@@ -115,7 +115,7 @@ func TestPutRecords(t *testing.T) {
 		},
 	}).
 		Return(&kinesis.PutRecordsOutput{}, nil).Once()
-	err = m.PutRecords(context.Background(), &PutRecordsRequest{Stream: "test", Records: []*metamorphosisv1.Record{record}})
+	err = m.PutRecords(context.Background(), &PutRecordsRequest{StreamName: aws.String("test"), Records: []*metamorphosisv1.Record{record}})
 	must.NoError(t, err)
 }
 
