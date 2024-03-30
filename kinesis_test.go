@@ -106,7 +106,7 @@ func TestPutRecords(t *testing.T) {
 	must.NoError(t, err)
 
 	kc.EXPECT().PutRecords(context.Background(), &kinesis.PutRecordsInput{
-		StreamARN: aws.String("arn"),
+		StreamName: aws.String("test"),
 		Records: []types.PutRecordsRequestEntry{
 			{
 				PartitionKey: aws.String("partitionKey"),
@@ -115,7 +115,7 @@ func TestPutRecords(t *testing.T) {
 		},
 	}).
 		Return(&kinesis.PutRecordsOutput{}, nil).Once()
-	err = m.PutRecords(context.Background(), nil, record)
+	err = m.PutRecords(context.Background(), &PutRecordsRequest{Stream: "test", Records: []*metamorphosisv1.Record{record}})
 	must.NoError(t, err)
 }
 

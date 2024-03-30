@@ -29,6 +29,11 @@ type KinesisAPI interface {
 	DescribeStream(ctx context.Context, params *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error)
 }
 
+type PutRecordsRequest struct {
+	Records []*metamorphosisv1.Record
+	Stream  string
+}
+
 func (m *Metamorphosis) getShardIterator(ctx context.Context) (*string, error) {
 	kc := m.config.kinesisClient
 	m.log.Info("getting shard iterator")
@@ -54,11 +59,11 @@ func (m *Metamorphosis) getShardIterator(ctx context.Context) (*string, error) {
 	return out.ShardIterator, nil
 }
 
-func (m *Metamorphosis) PutRecords(ctx context.Context, streamName *string, records ...*metamorphosisv1.Record) error {
+func (m *Metamorphosis) PutRecords(ctx context.Context, req *PutRecordsRequest) error {
 	slog.Info("adding records to stream")
 	kc := m.config.kinesisClient
-	kinesisRecords := make([]types.PutRecordsRequestEntry, len(records))
-	for i, record := range records {
+	kinesisRecords := make([]types.PutRecordsRequestEntry, len(req.Records))
+	for i, record := range req.Records {
 		data, err := proto.Marshal(record)
 		if err != nil {
 			return err
@@ -72,11 +77,7 @@ func (m *Metamorphosis) PutRecords(ctx context.Context, streamName *string, reco
 	params := &kinesis.PutRecordsInput{
 		Records: kinesisRecords,
 	}
-	if streamName != nil {
-		params.StreamName = streamName
-	} else {
-		params.StreamARN = &m.config.StreamARN
-	}
+	params.StreamName = &req.Stream
 	_, err := kc.PutRecords(ctx, params)
 	return err
 }
