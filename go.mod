@@ -11,8 +11,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.27.1
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.24.7
 	github.com/lmittmann/tint v1.0.4
+	github.com/oklog/run v1.1.0
+	github.com/oklog/ulid/v2 v2.1.0
 	github.com/shoenig/test v1.7.2
 	github.com/stretchr/testify v1.8.4
+	github.com/urfave/cli/v2 v2.27.1
+	golang.org/x/sync v0.6.0
 	google.golang.org/protobuf v1.32.0
 )
 
@@ -30,10 +34,13 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.21.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.26.7 // indirect
 	github.com/aws/smithy-go v1.19.0 // indirect
+	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/stretchr/objx v0.5.0 // indirect
+	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

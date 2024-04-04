@@ -7,8 +7,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	ktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+
+	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 )
 
+type API interface {
+	CommitRecord(ctx context.Context, record *metamorphosisv1.Record) error
+	FetchRecord(ctx context.Context) (*metamorphosisv1.Record, error)
+	FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv1.Record, error)
+	Init(ctx context.Context) (func(), error)
+	PutRecords(ctx context.Context, request *PutRecordsRequest) error
+}
 type Metamorphosis struct {
 	// internal fields
 	config *Config
