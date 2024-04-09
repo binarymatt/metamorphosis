@@ -23,7 +23,7 @@ func TestGetShardIterator(t *testing.T) {
 	must.True(t, t.Run("missing reservation", func(t *testing.T) {
 		kc := mocks.NewKinesisAPI(t)
 		config := testConfig().WithKinesisClient(kc)
-		m := New(config, 0)
+		m := NewClient(config, 0)
 
 		iterator, err := m.getShardIterator(context.Background())
 		must.Nil(t, iterator)
@@ -32,7 +32,7 @@ func TestGetShardIterator(t *testing.T) {
 	must.True(t, t.Run("after sequence", func(t *testing.T) {
 		kc := mocks.NewKinesisAPI(t)
 		config := testConfig().WithKinesisClient(kc)
-		m := New(config, 0)
+		m := NewClient(config, 0)
 		m.reservation = &Reservation{
 			LatestSequence: "last",
 		}
@@ -54,7 +54,7 @@ func TestGetShardIterator(t *testing.T) {
 	must.True(t, t.Run("trim horizon", func(t *testing.T) {
 		kc := mocks.NewKinesisAPI(t)
 		config := testConfig().WithKinesisClient(kc)
-		m := New(config, 0)
+		m := NewClient(config, 0)
 		m.reservation = &Reservation{
 			LatestSequence: "",
 		}
@@ -75,7 +75,7 @@ func TestGetShardIterator(t *testing.T) {
 	must.True(t, t.Run("kinesis error", func(t *testing.T) {
 		kc := mocks.NewKinesisAPI(t)
 		config := testConfig().WithKinesisClient(kc)
-		m := New(config, 0)
+		m := NewClient(config, 0)
 		m.reservation = &Reservation{
 			LatestSequence: "",
 		}
@@ -97,7 +97,7 @@ func TestGetShardIterator(t *testing.T) {
 func TestPutRecords(t *testing.T) {
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig().WithKinesisClient(kc)
-	m := New(config, 0)
+	m := NewClient(config, 0)
 	record := &metamorphosisv1.Record{
 		Id:   "partitionKey",
 		Body: []byte(`{"test":"json"}`),
@@ -125,7 +125,7 @@ func TestFetchRecords(t *testing.T) {
 	kc := mocks.NewKinesisAPI(t)
 	dc := mocks.NewDynamoDBAPI(t)
 	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc)
-	m := New(config, 0)
+	m := NewClient(config, 0)
 
 	dc.EXPECT().GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String("table"),
@@ -183,6 +183,7 @@ func TestFetchRecords(t *testing.T) {
 			},
 		}, nil).Once()
 	metaRecord.Sequence = "1"
+	metaRecord.Shard = "shardID"
 	expectedRecords := []*metamorphosisv1.Record{&metaRecord}
 
 	must.Nil(t, m.reservation)

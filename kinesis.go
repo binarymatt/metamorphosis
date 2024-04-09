@@ -3,7 +3,6 @@ package metamorphosis
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -35,9 +34,9 @@ type PutRecordsRequest struct {
 	StreamArn  *string
 }
 
-func (m *Metamorphosis) getShardIterator(ctx context.Context) (*string, error) {
+func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 	kc := m.config.kinesisClient
-	m.log.Info("getting shard iterator")
+	m.logger.Debug("getting shard iterator")
 	if m.reservation == nil {
 		return nil, ErrMissingReservation
 	}
@@ -51,16 +50,16 @@ func (m *Metamorphosis) getShardIterator(ctx context.Context) (*string, error) {
 	} else {
 		input.ShardIteratorType = types.ShardIteratorTypeTrimHorizon
 	}
-	m.log.Info("shard iterator input", "input", *input)
+	m.logger.Debug("shard iterator input", "input", *input)
 	out, err := kc.GetShardIterator(ctx, input)
 	if err != nil {
-		fmt.Println("error getting shard iterator", err)
+		m.logger.Error("error getting shard iterator", "error", err)
 		return nil, err
 	}
 	return out.ShardIterator, nil
 }
 
-func (m *Metamorphosis) PutRecords(ctx context.Context, req *PutRecordsRequest) error {
+func (m *Client) PutRecords(ctx context.Context, req *PutRecordsRequest) error {
 	slog.Info("adding records to stream")
 	kc := m.config.kinesisClient
 	kinesisRecords := make([]types.PutRecordsRequestEntry, len(req.Records))
@@ -84,7 +83,7 @@ func (m *Metamorphosis) PutRecords(ctx context.Context, req *PutRecordsRequest) 
 	return err
 }
 
-func (m *Metamorphosis) FetchRecord(ctx context.Context) (*metamorphosisv1.Record, error) {
+func (m *Client) FetchRecord(ctx context.Context) (*metamorphosisv1.Record, error) {
 	records, err := m.FetchRecords(ctx, 1)
 	if err != nil {
 		return nil, err
@@ -95,11 +94,10 @@ func (m *Metamorphosis) FetchRecord(ctx context.Context) (*metamorphosisv1.Recor
 	return nil, nil
 }
 
-func (m *Metamorphosis) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv1.Record, error) {
+func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv1.Record, error) {
 	kc := m.config.kinesisClient
-	m.log.Info("starting fetch records", "reservation", m.reservation)
 	if m.reservation == nil {
-		m.log.Error("reservation not present")
+		m.logger.Error("reservation not present")
 		r, err := m.fetchReservation(ctx)
 		if err != nil {
 			return nil, err
@@ -107,6 +105,7 @@ func (m *Metamorphosis) FetchRecords(ctx context.Context, max int32) ([]*metamor
 		m.reservation = r
 
 	}
+	m.logger.Debug("starting fetch records", "worker_id", m.reservation.WorkerID)
 	iterator, err := m.getShardIterator(ctx)
 	if err != nil {
 		return nil, err
@@ -124,18 +123,19 @@ func (m *Metamorphosis) FetchRecords(ctx context.Context, max int32) ([]*metamor
 	for i, kr := range output.Records {
 		r, err := m.translateRecord(kr)
 		if err != nil {
-			m.log.Error("could not get metamorphosis record from kinesis", "error", err)
+			m.logger.Error("could not get metamorphosis record from kinesis", "error", err)
 			return nil, err
 		}
 		records[i] = r
 	}
-	m.log.Info("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID)
+	m.logger.Debug("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
 
 	return records, nil
 }
-func (m *Metamorphosis) translateRecord(kinesisRecord types.Record) (*metamorphosisv1.Record, error) {
+func (m *Client) translateRecord(kinesisRecord types.Record) (*metamorphosisv1.Record, error) {
 	var record metamorphosisv1.Record
 	err := proto.Unmarshal(kinesisRecord.Data, &record)
 	record.Sequence = *kinesisRecord.SequenceNumber
+	record.Shard = m.config.ShardID
 	return &record, err
 }

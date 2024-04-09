@@ -120,7 +120,7 @@ func (i *IntegrationTestSuite) TestReserveShard_ExpiredReservation() {
 	client := defaultClient("worker1")
 	i.setupReservation("worker2", "latest", i.t.Add(-2*time.Minute).Unix())
 
-	err := client.reserveShard(context.Background())
+	err := client.ReserveShard(context.Background())
 	must.NoError(i.T(), err)
 
 	expected := Reservation{
@@ -136,7 +136,7 @@ func (i *IntegrationTestSuite) TestReserveShard_ExpiredReservation() {
 func (i *IntegrationTestSuite) TestReservedShard_NoReservation() {
 	ctx := context.Background()
 	client := defaultClient("worker1")
-	err := client.reserveShard(ctx)
+	err := client.ReserveShard(ctx)
 	must.NoError(i.T(), err)
 
 	expected := Reservation{
@@ -154,7 +154,7 @@ func (i *IntegrationTestSuite) TestReserveshard_ExistingWorker() {
 	ctx := context.Background()
 	client := defaultClient("worker1")
 	i.setupReservation("worker1", "", i.t.Add(-2*time.Minute).Unix())
-	err := client.reserveShard(ctx)
+	err := client.ReserveShard(ctx)
 	must.NoError(i.T(), err)
 
 	expected := Reservation{
@@ -170,7 +170,7 @@ func (i *IntegrationTestSuite) TestReserveshard_ExistingWorker() {
 func (i *IntegrationTestSuite) TestReserveShard_ExistingReservationOtherWorker() {
 	client := defaultClient("worker1")
 	i.setupReservation("worker2", "", i.t.Add(1*time.Minute).Unix())
-	err := client.reserveShard(context.Background())
+	err := client.ReserveShard(context.Background())
 	must.ErrorIs(i.T(), err, ErrShardReserved)
 }
 
@@ -288,10 +288,10 @@ func (i *IntegrationTestSuite) addKinesisRecord(id string) {
 	})
 	must.NoError(i.T(), err)
 }
-func defaultClient(workerID string) *Metamorphosis {
+func defaultClient(workerID string) *Client {
 	config := NewConfig().
 		WithGroup(group).
-		WithWorkerId(workerID).
+		WithWorkerID(workerID).
 		WithStreamArn(streamARN).
 		WithTableName(tableName).
 		WithReservationTimeout(1 * time.Minute).
@@ -299,7 +299,7 @@ func defaultClient(workerID string) *Metamorphosis {
 		WithDynamoClient(buildDynamoClient()).
 		WithKinesisClient(buildKinesisClient())
 
-	return New(config, 0)
+	return NewClient(config, 0)
 }
 
 func buildDynamoClient() DynamoDBAPI {

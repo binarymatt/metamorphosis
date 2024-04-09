@@ -66,7 +66,7 @@ func TestConfigAnnotations(t *testing.T) {
 	c.WithGroup("testGroup")
 	must.Eq(t, "testGroup", c.GroupID)
 
-	c.WithWorkerId("workerID")
+	c.WithWorkerID("workerID")
 	must.Eq(t, "workerID", c.WorkerID)
 
 	c.WithStreamArn("stream:arn")

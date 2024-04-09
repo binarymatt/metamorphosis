@@ -17,68 +17,67 @@ type API interface {
 	FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv1.Record, error)
 	Init(ctx context.Context) (func(), error)
 	PutRecords(ctx context.Context, request *PutRecordsRequest) error
+	CurrentReservation() *Reservation
+	ListReservations(ctx context.Context) ([]Reservation, error)
 }
-type Metamorphosis struct {
+type Client struct {
 	// internal fields
-	config *Config
-	//kc          KinesisAPI
-	// dc          DynamoDBAPI
+	config      *Config
 	reservation *Reservation
 	seed        int
-	log         *slog.Logger
+	logger      *slog.Logger
 }
 
-func New(config *Config, seed int) *Metamorphosis {
-	return &Metamorphosis{
+func NewClient(config *Config, seed int) *Client {
+	slog.Info("setting up client", "seed", seed)
+	return &Client{
 		seed:   seed,
 		config: config,
-		log:    slog.With("seed", seed, "worker", config.WorkerID, "group", config.GroupID),
+		logger: config.logger.With("seed", seed, "worker", config.WorkerID, "group", config.GroupID),
 	}
 }
-func (m *Metamorphosis) Init(ctx context.Context) (func(), error) {
-	m.log.Info("initializing metamorphosis client")
-	if err := m.config.Bootstrap(ctx); err != nil {
-		return nil, err
-	}
-	//m.kc = m.config.kinesisClient
-	//m.dc = m.config.dynamoClient
-
-	if err := m.config.Validate(); err != nil {
+func (c *Client) Init(ctx context.Context) (func(), error) {
+	c.logger.Info("initializing metamorphosis client")
+	if err := c.config.Bootstrap(ctx); err != nil {
 		return nil, err
 	}
 
-	if err := m.reserveShard(ctx); err != nil {
+	if err := c.config.Validate(); err != nil {
 		return nil, err
 	}
 
-	if m.config.RenewTime > 0 {
+	if err := c.ReserveShard(ctx); err != nil {
+		return nil, err
+	}
+
+	if c.config.RenewTime > 0 {
 		go func(ctx context.Context) {
-			if err := m.renewReservation(ctx); err != nil {
-				m.log.Error("error in goroutine renewal", "error", err)
+			if err := c.renewReservation(ctx); err != nil {
+				c.logger.Error("error in goroutine renewal", "error", err)
 			}
 		}(ctx)
 	}
 
 	return func() {
-		if err := m.releaseReservation(ctx); err != nil {
-			m.log.Error("error releasing reservation", "error", err)
+		if err := c.ReleaseReservation(ctx); err != nil {
+			c.logger.Error("error releasing reservation", "error", err)
 		}
 	}, nil
 }
 
-func (m *Metamorphosis) retrieveRandomShardID(ctx context.Context) (string, error) {
+func (m *Client) retrieveRandomShardID(ctx context.Context) (string, error) {
 	// Get existing reservations
-	reservations, err := m.listReservations(ctx)
+	reservations, err := m.ListReservations(ctx)
 	if err != nil {
 		return "", err
 	}
-	m.log.Info("list shards to retrieve random")
+	m.logger.Info("list shards to retrieve random")
 	// List Shards
 	output, err := m.config.kinesisClient.ListShards(ctx, &kinesis.ListShardsInput{
 		StreamARN: aws.String(m.config.StreamARN),
 	})
 	if err != nil {
-		m.log.Error("error in listshards part", "error", err)
+		m.logger.Error("error in listshards part", "error", err)
 		return "", err
 	}
 	shards := output.Shards
@@ -90,18 +89,23 @@ func (m *Metamorphosis) retrieveRandomShardID(ctx context.Context) (string, erro
 			index = index - shardSize
 		}
 		shard := shards[index]
-		if !isReserved(reservations, shard) {
+		if !IsReserved(reservations, shard) {
 			return *shard.ShardId, nil
 		}
 	}
 
 	return "", ErrAllShardsReserved
 }
-func isReserved(reservations []Reservation, shard ktypes.Shard) bool {
+func (m *Client) CurrentReservation() *Reservation {
+	return m.reservation
+}
+func IsReserved(reservations []Reservation, shard ktypes.Shard) bool {
 	for _, reservation := range reservations {
 		if reservation.ShardID == *shard.ShardId {
+			slog.Debug("shard is reserved", "shard", *shard.ShardId)
 			return true
 		}
 	}
+	slog.Info("shard is not reserved", "shard", *shard.ShardId)
 	return false
 }

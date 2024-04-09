@@ -56,8 +56,8 @@ type DynamoDBAPI interface {
 	DeleteTable(ctx context.Context, params *dynamodb.DeleteTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteTableOutput, error)
 }
 
-func (m *Metamorphosis) listReservations(ctx context.Context) ([]Reservation, error) {
-	m.log.Info("listing reservations")
+func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
+	m.logger.Info("listing reservations")
 	client := m.config.dynamoClient
 	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(m.config.GroupID))
 
@@ -82,7 +82,7 @@ func (m *Metamorphosis) listReservations(ctx context.Context) ([]Reservation, er
 	}
 	out, err := client.Query(ctx, input)
 	if err != nil {
-		m.log.Error("error getting existing reservations")
+		m.logger.Error("error getting existing reservations")
 		return nil, err
 	}
 	var reservations []Reservation
@@ -91,30 +91,22 @@ func (m *Metamorphosis) listReservations(ctx context.Context) ([]Reservation, er
 	}
 	return reservations, err
 }
-func (m *Metamorphosis) reserveShard(ctx context.Context) error {
-	client := m.config.dynamoClient
-	// 1. Is shardid set? if not, get random available shard
-	if m.config.ShardID == "" {
-		m.log.Debug("getting random shard")
-		shard, err := m.retrieveRandomShardID(ctx)
-		if err != nil {
-			return err
-		}
-		m.config.ShardID = shard
-	}
-	m.log.Info("starting shard reservation", "shard", m.config.ShardID, "timeout", m.config.ReservationTimeout, "worker", m.config.WorkerID)
+func (c *Client) ReserveShard(ctx context.Context) error {
+	client := c.config.dynamoClient
+	logger := c.logger.With("shard", c.config.ShardID, "timeout", c.config.ReservationTimeout, "worker", c.config.WorkerID, "group", c.config.GroupID)
+	logger.Info("starting shard reservation")
 	// 1. Is there an existing reservation for this group/worker, if so use that.
 	// conditional PutItem
 	now := Now()
 
 	condition := expression.Or(
 		expression.AttributeNotExists(expression.Name(ExpiresAtKey)),
-		expression.Name(WorkerIDKey).Equal(expression.Value(m.config.WorkerID)),
+		expression.Name(WorkerIDKey).Equal(expression.Value(c.config.WorkerID)),
 		expression.Name(ExpiresAtKey).LessThan(expression.Value(now.Unix())),
 	)
 
-	expires := Now().Add(m.config.ReservationTimeout)
-	update := expression.Set(expression.Name(WorkerIDKey), expression.Value(m.config.WorkerID)).
+	expires := Now().Add(c.config.ReservationTimeout)
+	update := expression.Set(expression.Name(WorkerIDKey), expression.Value(c.config.WorkerID)).
 		Set(expression.Name(ExpiresAtKey), expression.Value(expires.Unix()))
 
 	expr, err := expression.NewBuilder().
@@ -125,10 +117,10 @@ func (m *Metamorphosis) reserveShard(ctx context.Context) error {
 		return err
 	}
 	input := &dynamodb.UpdateItemInput{
-		TableName: &m.config.ReservationTable,
+		TableName: &c.config.ReservationTable,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
-			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupID},
+			ShardIDKey: &types.AttributeValueMemberS{Value: c.config.ShardID},
 		},
 		ConditionExpression:       expr.Condition(),
 		UpdateExpression:          expr.Update(),
@@ -139,25 +131,25 @@ func (m *Metamorphosis) reserveShard(ctx context.Context) error {
 	out, err := client.UpdateItem(ctx, input)
 	var conditionFailed *types.ConditionalCheckFailedException
 	if errors.As(err, &conditionFailed) {
-		m.log.Error("conditional check failed during shard reservation", "error", err)
-		m.reservation = nil
+		c.logger.Error("conditional check failed during shard reservation", "error", err)
+		c.reservation = nil
 		return ErrShardReserved
 
 	}
 	if err != nil {
-		m.log.Error("error reserving shard", "error", err, "shardid", m.config.ShardID, "workerID", m.config.WorkerID)
+		c.logger.Error("error reserving shard", "error", err)
 		return err
 	}
 	var reservation Reservation
 	if err := attributevalue.UnmarshalMap(out.Attributes, &reservation); err != nil {
 		return err
 	}
-	m.reservation = &reservation
-	m.log.Info("reservation made", "expires", expires, "workerID", m.config.WorkerID, "group", m.config.GroupID, "shard", m.config.ShardID, "sequence", m.reservation.LatestSequence)
+	c.reservation = &reservation
+	c.logger.Info("reservation made", "expires", expires, "sequence", c.reservation.LatestSequence)
 	return nil
 }
 
-func (m *Metamorphosis) releaseReservation(ctx context.Context) error {
+func (m *Client) ReleaseReservation(ctx context.Context) error {
 	client := m.config.dynamoClient
 	condition := expression.Name(WorkerIDKey).Equal(expression.Value(m.config.WorkerID))
 
@@ -184,27 +176,27 @@ func (m *Metamorphosis) releaseReservation(ctx context.Context) error {
 		ExpressionAttributeNames:  expr.Names(),
 		ExpressionAttributeValues: expr.Values(),
 	})
-	m.log.Warn("reservation released", "error", err)
+	m.logger.Warn("reservation released", "error", err)
 	return err
 }
 
-func (m *Metamorphosis) renewReservation(ctx context.Context) error {
+func (m *Client) renewReservation(ctx context.Context) error {
 	ticker := time.NewTicker(m.config.RenewTime)
 	for {
 		select {
 		case <-ctx.Done():
-			m.log.Debug("reservation loop finished, context done")
+			m.logger.Debug("reservation loop finished, context done")
 			return nil
 		case <-ticker.C:
-			m.log.Debug("trying reservation renewal")
-			if err := m.reserveShard(ctx); err != nil {
+			m.logger.Debug("trying reservation renewal")
+			if err := m.ReserveShard(ctx); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (m *Metamorphosis) CommitRecord(ctx context.Context, record *metamorphosisv1.Record) error {
+func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Record) error {
 	sequence := record.Sequence
 	client := m.config.dynamoClient
 
@@ -235,32 +227,32 @@ func (m *Metamorphosis) CommitRecord(ctx context.Context, record *metamorphosisv
 		ReturnValues:              types.ReturnValueAllNew,
 	}
 
-	m.log.Info("commiting position", "sequence", sequence, "reservation_expires", expires, "group", m.config.GroupID, "shard", m.config.ShardID, "worker", m.config.WorkerID)
+	m.logger.Debug("commiting position", "sequence", sequence, "reservation_expires", expires, "group", m.config.GroupID, "shard", m.config.ShardID, "worker", m.config.WorkerID)
 	out, err := client.UpdateItem(ctx, input)
 	if err != nil {
 		var conditionFailed *types.ConditionalCheckFailedException
 		if errors.As(err, &conditionFailed) {
-			m.log.Error("conditional check failed during commit ", "error", err)
+			m.logger.Error("conditional check failed during commit ", "error", err)
 			m.reservation = nil
 			return ErrShardReserved
 
 		}
-		m.log.Error("could not commit position", "error", err)
+		m.logger.Error("could not commit position", "error", err)
 		return err
 	}
 	var reservation Reservation
 	if err := attributevalue.UnmarshalMap(out.Attributes, &reservation); err != nil {
 		return err
 	}
-	m.log.Debug("setting reservation", "reservation", reservation)
+	m.logger.Debug("setting reservation", "reservation", reservation)
 	m.reservation = &reservation
 	return nil
 }
 
-func (m *Metamorphosis) fetchReservation(ctx context.Context) (*Reservation, error) {
+func (m *Client) fetchReservation(ctx context.Context) (*Reservation, error) {
 	client := m.config.dynamoClient
 
-	m.log.Info("fetching reservation", "group", m.config.GroupID, "shard", m.config.ShardID, "table", m.config.ReservationTable)
+	m.logger.Info("fetching reservation", "group", m.config.GroupID, "shard", m.config.ShardID, "table", m.config.ReservationTable)
 	input := &dynamodb.GetItemInput{
 		TableName: &m.config.ReservationTable,
 		Key: map[string]types.AttributeValue{
@@ -270,12 +262,12 @@ func (m *Metamorphosis) fetchReservation(ctx context.Context) (*Reservation, err
 	}
 	out, err := client.GetItem(ctx, input)
 	if err != nil {
-		m.log.Error("error getting item", "error", err)
+		m.logger.Error("error getting item", "error", err)
 		return nil, err
 	}
-	m.log.Info("retrieved reservation", "item", out.Item)
+	m.logger.Info("retrieved reservation", "item", out.Item)
 	if out.Item == nil {
-		m.log.Error("no reservation retrieved")
+		m.logger.Error("no reservation retrieved")
 		return nil, ErrNotFound
 	}
 	var reservation Reservation
