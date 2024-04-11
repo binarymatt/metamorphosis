@@ -15,10 +15,11 @@ type API interface {
 	CommitRecord(ctx context.Context, record *metamorphosisv1.Record) error
 	FetchRecord(ctx context.Context) (*metamorphosisv1.Record, error)
 	FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv1.Record, error)
-	Init(ctx context.Context) (func(), error)
+	Init(ctx context.Context) error
 	PutRecords(ctx context.Context, request *PutRecordsRequest) error
 	CurrentReservation() *Reservation
 	ListReservations(ctx context.Context) ([]Reservation, error)
+	IsReserved(reservations []Reservation, shard ktypes.Shard) bool
 }
 type Client struct {
 	// internal fields
@@ -36,33 +37,21 @@ func NewClient(config *Config, seed int) *Client {
 		logger: config.logger.With("seed", seed, "worker", config.WorkerID, "group", config.GroupID),
 	}
 }
-func (c *Client) Init(ctx context.Context) (func(), error) {
+func (c *Client) Init(ctx context.Context) error {
 	c.logger.Info("initializing metamorphosis client")
 	if err := c.config.Bootstrap(ctx); err != nil {
-		return nil, err
+		return err
 	}
 
 	if err := c.config.Validate(); err != nil {
-		return nil, err
+		return err
 	}
 
 	if err := c.ReserveShard(ctx); err != nil {
-		return nil, err
+		return err
 	}
 
-	if c.config.RenewTime > 0 {
-		go func(ctx context.Context) {
-			if err := c.renewReservation(ctx); err != nil {
-				c.logger.Error("error in goroutine renewal", "error", err)
-			}
-		}(ctx)
-	}
-
-	return func() {
-		if err := c.ReleaseReservation(ctx); err != nil {
-			c.logger.Error("error releasing reservation", "error", err)
-		}
-	}, nil
+	return nil
 }
 
 func (m *Client) retrieveRandomShardID(ctx context.Context) (string, error) {
@@ -89,7 +78,7 @@ func (m *Client) retrieveRandomShardID(ctx context.Context) (string, error) {
 			index = index - shardSize
 		}
 		shard := shards[index]
-		if !IsReserved(reservations, shard) {
+		if !m.IsReserved(reservations, shard) {
 			return *shard.ShardId, nil
 		}
 	}
@@ -99,13 +88,13 @@ func (m *Client) retrieveRandomShardID(ctx context.Context) (string, error) {
 func (m *Client) CurrentReservation() *Reservation {
 	return m.reservation
 }
-func IsReserved(reservations []Reservation, shard ktypes.Shard) bool {
+func (m *Client) IsReserved(reservations []Reservation, shard ktypes.Shard) bool {
 	for _, reservation := range reservations {
 		if reservation.ShardID == *shard.ShardId {
 			slog.Debug("shard is reserved", "shard", *shard.ShardId)
 			return true
 		}
 	}
-	slog.Info("shard is not reserved", "shard", *shard.ShardId)
+	m.logger.Warn("shard is not reserved", "shard", *shard.ShardId)
 	return false
 }

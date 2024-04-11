@@ -11,7 +11,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.27.1
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.24.7
 	github.com/lmittmann/tint v1.0.4
-	github.com/oklog/run v1.1.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/shoenig/test v1.7.2
 	github.com/stretchr/testify v1.8.4

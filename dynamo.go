@@ -180,7 +180,7 @@ func (m *Client) ReleaseReservation(ctx context.Context) error {
 	return err
 }
 
-func (m *Client) renewReservation(ctx context.Context) error {
+func (m *Client) RenewReservation(ctx context.Context) error {
 	ticker := time.NewTicker(m.config.RenewTime)
 	for {
 		select {

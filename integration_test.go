@@ -216,7 +216,7 @@ func (i *IntegrationTestSuite) TestFetchRecords_NoReservation() {
 }
 func (i *IntegrationTestSuite) TestFetchRecords_OneRecord() {
 	mc := defaultClient("worker1")
-	_, err := mc.Init(i.ctx)
+	err := mc.Init(i.ctx)
 	must.NoError(i.T(), err)
 
 	records, err := mc.FetchRecords(i.ctx, 1)
@@ -230,7 +230,7 @@ func (i *IntegrationTestSuite) TestFetchRecords_OneRecord() {
 }
 func (i *IntegrationTestSuite) TestFetchRecords_MultipleRecords() {
 	mc := defaultClient("worker1")
-	_, err := mc.Init(i.ctx)
+	err := mc.Init(i.ctx)
 	must.NoError(i.T(), err)
 
 	records, err := mc.FetchRecords(i.ctx, 5)
@@ -248,7 +248,7 @@ func (i *IntegrationTestSuite) TestFetchCommitLoop() {
 	ctx := context.Background()
 
 	client := defaultClient("loopWorker")
-	_, err := client.Init(ctx)
+	err := client.Init(ctx)
 	must.NoError(i.T(), err)
 
 	// fetch and commit

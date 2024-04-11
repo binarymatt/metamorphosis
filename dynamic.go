@@ -26,6 +26,9 @@ type Actor struct {
 
 func (a *Actor) Work(ctx context.Context) error {
 	reservation := a.mc.CurrentReservation()
+	if reservation == nil {
+		return ErrMissingReservation
+	}
 	a.logger = a.logger.With("shard_id", reservation.ShardID, "worker_id", reservation.WorkerID, "group_id", reservation.GroupID)
 	for {
 		select {
@@ -76,11 +79,11 @@ func New(ctx context.Context, config *Config) *Manager {
 		actors:            eg,
 		ctx:               ctx,
 		logger:            config.logger.With("service", "manager"),
+		cachedShards:      map[string]types.Shard{},
 	}
 }
 
 func (m *Manager) Start(ctx context.Context) error {
-	m.cachedShards = map[string]types.Shard{}
 	if m.logger == nil {
 		m.logger = slog.Default()
 	}
@@ -100,11 +103,12 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 func (m *Manager) Loop(ctx context.Context) error {
 	// check shard count
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(m.config.MangerLoopWaitTime)
 	m.logger.Info("starting loop")
 	for {
 		select {
 		case <-ctx.Done():
+			m.logger.Warn("context is done")
 			return nil
 		case <-ticker.C:
 			shards, err := m.CheckForAvailableShards(ctx)
@@ -135,9 +139,10 @@ func (m *Manager) Loop(ctx context.Context) error {
 							WithDynamoClient(m.config.dynamoClient).
 							WithShardID(*shard.ShardId).
 							WithStreamArn(m.config.StreamARN).
-							WithTableName(m.config.ReservationTable)
+							WithTableName(m.config.ReservationTable).
+							WithRenewTime(m.config.RenewTime)
 						client := NewClient(cfg, index)
-						_, err := client.Init(ctx)
+						err := client.Init(ctx)
 						if err != nil {
 							if errors.Is(err, ErrShardReserved) {
 								logger.Info("exiting out of routine, shard not available.", "error", err)
@@ -151,6 +156,14 @@ func (m *Manager) Loop(ctx context.Context) error {
 							logger:    logger,
 							processor: m.config.recordProcessor,
 						}
+						if cfg.RenewTime > 0 {
+							go func(ctx context.Context) {
+								if err := client.RenewReservation(ctx); err != nil {
+									m.logger.Error("error in goroutine renewal", "error", err)
+								}
+							}(ctx)
+						}
+
 						defer func() {
 							ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 							if err := client.ReleaseReservation(ctx); err != nil {
@@ -190,7 +203,7 @@ func (m *Manager) CheckForAvailableShards(ctx context.Context) ([]types.Shard, e
 	availableShards := []types.Shard{}
 	// Find first unreserved shard
 	for _, shard := range m.cachedShards {
-		if !IsReserved(reservations, shard) {
+		if !m.internalClient.IsReserved(reservations, shard) {
 			availableShards = append(availableShards, shard)
 		}
 	}
@@ -199,7 +212,7 @@ func (m *Manager) CheckForAvailableShards(ctx context.Context) ([]types.Shard, e
 
 func (m *Manager) shardsState(ctx context.Context) error {
 	// do we need to check state again
-	now := time.Now()
+	now := Now()
 	if now.Before(m.cacheLastChecked.Add(m.config.shardCacheDuration)) {
 		m.logger.Debug("cache hasn't expired")
 		return nil
@@ -215,6 +228,6 @@ func (m *Manager) shardsState(ctx context.Context) error {
 		m.cachedShards[*shard.ShardId] = shard
 	}
 	m.logger.Info("cached shard state", "count", len(m.cachedShards), "current_actors", m.currentActorCount)
-	m.cacheLastChecked = time.Now()
+	m.cacheLastChecked = Now()
 	return nil
 }

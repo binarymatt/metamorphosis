@@ -28,6 +28,7 @@ type Config struct {
 	ShardID            string
 	ReservationTimeout time.Duration
 	RenewTime          time.Duration
+	MangerLoopWaitTime time.Duration
 	kinesisClient      KinesisAPI
 	dynamoClient       DynamoDBAPI
 
@@ -42,6 +43,7 @@ func NewConfig() *Config {
 	return &Config{
 		logger:        slog.Default(),
 		maxActorCount: 1,
+		RenewTime:     1 * time.Minute,
 	}
 }
 func (c *Config) Copy() *Config {

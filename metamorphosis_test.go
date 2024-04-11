@@ -42,9 +42,8 @@ func TestInit_InvalidConfig(t *testing.T) {
 	}
 	config = config.WithDynamoClient(dc)
 	c := NewClient(config, 0)
-	closer, err := c.Init(context.Background())
+	err := c.Init(context.Background())
 	must.ErrorIs(t, err, ErrInvalidConfiguration)
-	must.Nil(t, closer)
 }
 
 func TestInit_ReserveShard(t *testing.T) {
@@ -60,9 +59,8 @@ func TestInit_ReserveShard(t *testing.T) {
 	config := testConfig().WithDynamoClient(dc)
 	c := NewClient(config, 0)
 	must.Nil(t, c.reservation)
-	closer, err := c.Init(ctx)
+	err := c.Init(ctx)
 	must.NoError(t, err)
-	must.NotNil(t, closer)
 	must.NotNil(t, c.reservation)
 	must.Eq(t, &Reservation{
 		GroupID: "testGroup",
@@ -209,15 +207,18 @@ func TestReleaseReservation_Error(t *testing.T) {
 }
 
 func TestIsReserved(t *testing.T) {
+	c := Client{
+		logger: slog.Default(),
+	}
 	reservations := []Reservation{}
 	shard := ktypes.Shard{
 		ShardId: aws.String("1"),
 	}
-	must.False(t, IsReserved(reservations, shard))
+	must.False(t, c.IsReserved(reservations, shard))
 	reservations = append(reservations, Reservation{
 		ShardID: "1",
 	})
-	must.True(t, IsReserved(reservations, shard))
+	must.True(t, c.IsReserved(reservations, shard))
 }
 
 func TestRetrieveRandomShardID(t *testing.T) {
