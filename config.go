@@ -32,11 +32,12 @@ type Config struct {
 	kinesisClient      KinesisAPI
 	dynamoClient       DynamoDBAPI
 
-	recordProcessor    RecordProcessor
-	logger             *slog.Logger
-	shardCacheDuration time.Duration
-	maxActorCount      int
-	workerPrefix       string
+	recordProcessor      RecordProcessor
+	logger               *slog.Logger
+	shardCacheDuration   time.Duration
+	maxActorCount        int
+	workerPrefix         string
+	SleepAfterProcessing time.Duration
 }
 
 func NewConfig() *Config {

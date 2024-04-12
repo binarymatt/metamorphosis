@@ -18,10 +18,11 @@ type ClientContextKey struct{}
 type RecordProcessor = func(context.Context, *metamorphosisv1.Record) error
 
 type Actor struct {
-	id        string
-	mc        API
-	processor RecordProcessor
-	logger    *slog.Logger
+	id                   string
+	mc                   API
+	processor            RecordProcessor
+	logger               *slog.Logger
+	SleepAfterProcessing time.Duration
 }
 
 func (a *Actor) Work(ctx context.Context) error {
@@ -35,23 +36,31 @@ func (a *Actor) Work(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+			a.logger.Debug("fetching record")
 			record, err := a.mc.FetchRecord(ctx)
 			if err != nil {
 				a.logger.Error("error fetching record", "error", err)
 				return err
 			}
 			if record == nil {
+				a.logger.Debug("record is nil")
 				time.Sleep(1 * time.Second)
 				continue
 			}
+			a.logger.Debug("processing record", "record", record)
 			ctxWithClient := context.WithValue(ctx, ClientContextKey{}, a.mc)
 			if err := a.processor(ctxWithClient, record); err != nil {
 				a.logger.Error("error processing record", "error", err, "processor", a.processor)
 				return err
 			}
+			a.logger.Debug("commiting record")
 			if err := a.mc.CommitRecord(ctx, record); err != nil {
 				a.logger.Error("error commiting record", "error", err)
 				return err
+			}
+			a.logger.Debug("checking sleep", "sleep_time", a.SleepAfterProcessing)
+			if a.SleepAfterProcessing != 0 {
+				time.Sleep(a.SleepAfterProcessing)
 			}
 		}
 	}
@@ -140,7 +149,8 @@ func (m *Manager) Loop(ctx context.Context) error {
 							WithShardID(*shard.ShardId).
 							WithStreamArn(m.config.StreamARN).
 							WithTableName(m.config.ReservationTable).
-							WithRenewTime(m.config.RenewTime)
+							WithRenewTime(m.config.RenewTime).
+							WithReservationTimeout(m.config.ReservationTimeout)
 						client := NewClient(cfg, index)
 						err := client.Init(ctx)
 						if err != nil {
@@ -151,10 +161,11 @@ func (m *Manager) Loop(ctx context.Context) error {
 							return err
 						}
 						worker := &Actor{
-							id:        workerID,
-							mc:        client,
-							logger:    logger,
-							processor: m.config.recordProcessor,
+							id:                   workerID,
+							mc:                   client,
+							logger:               logger,
+							processor:            m.config.recordProcessor,
+							SleepAfterProcessing: m.config.SleepAfterProcessing,
 						}
 						if cfg.RenewTime > 0 {
 							go func(ctx context.Context) {
@@ -165,11 +176,11 @@ func (m *Manager) Loop(ctx context.Context) error {
 						}
 
 						defer func() {
-							ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-							if err := client.ReleaseReservation(ctx); err != nil {
-								logger.Error("error during reservation release", "error", err)
-							}
-							cancel()
+							// ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+							// if err := client.ReleaseReservation(ctx); err != nil {
+							// 	logger.Error("error during reservation release", "error", err)
+							// }
+							//cancel()
 							logger.Warn("removing actor count")
 							m.currentActorCount--
 
@@ -182,7 +193,6 @@ func (m *Manager) Loop(ctx context.Context) error {
 					m.currentActorCount++
 				}
 			}
-			// time.Sleep(1 * time.Second)
 		}
 	}
 }

@@ -3,7 +3,6 @@ package metamorphosis
 import (
 	"context"
 	"errors"
-	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -60,7 +59,7 @@ func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 }
 
 func (m *Client) PutRecords(ctx context.Context, req *PutRecordsRequest) error {
-	slog.Info("adding records to stream")
+	m.logger.Info("adding records to stream")
 	kc := m.config.kinesisClient
 	kinesisRecords := make([]types.PutRecordsRequestEntry, len(req.Records))
 	for i, record := range req.Records {
@@ -84,6 +83,7 @@ func (m *Client) PutRecords(ctx context.Context, req *PutRecordsRequest) error {
 }
 
 func (m *Client) FetchRecord(ctx context.Context) (*metamorphosisv1.Record, error) {
+	m.logger.Debug("fetching single record")
 	records, err := m.FetchRecords(ctx, 1)
 	if err != nil {
 		return nil, err
@@ -117,6 +117,7 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 	}
 	output, err := kc.GetRecords(ctx, input)
 	if err != nil {
+		m.logger.Error("error getting records from kinesis", "error", err)
 		return nil, err
 	}
 	records := make([]*metamorphosisv1.Record, len(output.Records))
@@ -128,7 +129,7 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 		}
 		records[i] = r
 	}
-	m.logger.Debug("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
+	m.logger.Info("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
 
 	return records, nil
 }
