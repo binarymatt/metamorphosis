@@ -9,4 +9,5 @@ message Record {
   map<string, string> headers = 2;
   bytes body = 3;
   string sequence = 4;
+  string shard = 5;
 }

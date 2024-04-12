@@ -120,7 +120,7 @@ func (i *IntegrationTestSuite) TestReserveShard_ExpiredReservation() {
 	client := defaultClient("worker1")
 	i.setupReservation("worker2", "latest", i.t.Add(-2*time.Minute).Unix())
 
-	err := client.reserveShard(context.Background())
+	err := client.ReserveShard(context.Background())
 	must.NoError(i.T(), err)
 
 	expected := Reservation{
@@ -136,7 +136,7 @@ func (i *IntegrationTestSuite) TestReserveShard_ExpiredReservation() {
 func (i *IntegrationTestSuite) TestReservedShard_NoReservation() {
 	ctx := context.Background()
 	client := defaultClient("worker1")
-	err := client.reserveShard(ctx)
+	err := client.ReserveShard(ctx)
 	must.NoError(i.T(), err)
 
 	expected := Reservation{
@@ -154,7 +154,7 @@ func (i *IntegrationTestSuite) TestReserveshard_ExistingWorker() {
 	ctx := context.Background()
 	client := defaultClient("worker1")
 	i.setupReservation("worker1", "", i.t.Add(-2*time.Minute).Unix())
-	err := client.reserveShard(ctx)
+	err := client.ReserveShard(ctx)
 	must.NoError(i.T(), err)
 
 	expected := Reservation{
@@ -170,7 +170,7 @@ func (i *IntegrationTestSuite) TestReserveshard_ExistingWorker() {
 func (i *IntegrationTestSuite) TestReserveShard_ExistingReservationOtherWorker() {
 	client := defaultClient("worker1")
 	i.setupReservation("worker2", "", i.t.Add(1*time.Minute).Unix())
-	err := client.reserveShard(context.Background())
+	err := client.ReserveShard(context.Background())
 	must.ErrorIs(i.T(), err, ErrShardReserved)
 }
 
@@ -216,7 +216,7 @@ func (i *IntegrationTestSuite) TestFetchRecords_NoReservation() {
 }
 func (i *IntegrationTestSuite) TestFetchRecords_OneRecord() {
 	mc := defaultClient("worker1")
-	_, err := mc.Init(i.ctx)
+	err := mc.Init(i.ctx)
 	must.NoError(i.T(), err)
 
 	records, err := mc.FetchRecords(i.ctx, 1)
@@ -230,7 +230,7 @@ func (i *IntegrationTestSuite) TestFetchRecords_OneRecord() {
 }
 func (i *IntegrationTestSuite) TestFetchRecords_MultipleRecords() {
 	mc := defaultClient("worker1")
-	_, err := mc.Init(i.ctx)
+	err := mc.Init(i.ctx)
 	must.NoError(i.T(), err)
 
 	records, err := mc.FetchRecords(i.ctx, 5)
@@ -248,7 +248,7 @@ func (i *IntegrationTestSuite) TestFetchCommitLoop() {
 	ctx := context.Background()
 
 	client := defaultClient("loopWorker")
-	_, err := client.Init(ctx)
+	err := client.Init(ctx)
 	must.NoError(i.T(), err)
 
 	// fetch and commit
@@ -288,10 +288,10 @@ func (i *IntegrationTestSuite) addKinesisRecord(id string) {
 	})
 	must.NoError(i.T(), err)
 }
-func defaultClient(workerID string) *Metamorphosis {
+func defaultClient(workerID string) *Client {
 	config := NewConfig().
 		WithGroup(group).
-		WithWorkerId(workerID).
+		WithWorkerID(workerID).
 		WithStreamArn(streamARN).
 		WithTableName(tableName).
 		WithReservationTimeout(1 * time.Minute).
@@ -299,7 +299,7 @@ func defaultClient(workerID string) *Metamorphosis {
 		WithDynamoClient(buildDynamoClient()).
 		WithKinesisClient(buildKinesisClient())
 
-	return New(config, 0)
+	return NewClient(config, 0)
 }
 
 func buildDynamoClient() DynamoDBAPI {

@@ -28,12 +28,24 @@ type Config struct {
 	ShardID            string
 	ReservationTimeout time.Duration
 	RenewTime          time.Duration
+	MangerLoopWaitTime time.Duration
 	kinesisClient      KinesisAPI
 	dynamoClient       DynamoDBAPI
+
+	recordProcessor      RecordProcessor
+	logger               *slog.Logger
+	shardCacheDuration   time.Duration
+	maxActorCount        int
+	workerPrefix         string
+	SleepAfterProcessing time.Duration
 }
 
 func NewConfig() *Config {
-	return &Config{}
+	return &Config{
+		logger:        slog.Default(),
+		maxActorCount: 1,
+		RenewTime:     1 * time.Minute,
+	}
 }
 func (c *Config) Copy() *Config {
 	slog.Info("config before copy", "c", c)
@@ -51,7 +63,7 @@ func (c *Config) WithGroup(id string) *Config {
 	c.GroupID = id
 	return c
 }
-func (c *Config) WithWorkerId(id string) *Config {
+func (c *Config) WithWorkerID(id string) *Config {
 	c.WorkerID = id
 	return c
 }
@@ -84,12 +96,37 @@ func (c *Config) WithDynamoClient(client DynamoDBAPI) *Config {
 	c.dynamoClient = client
 	return c
 }
+func (c *Config) WithProcessor(p RecordProcessor) *Config {
+	c.recordProcessor = p
+	return c
+}
+
+func (c *Config) WithLogger(l *slog.Logger) *Config {
+	c.logger = l
+	return c
+}
+
+func (c *Config) WithShardCacheDuration(d time.Duration) *Config {
+	c.shardCacheDuration = d
+	return c
+}
+
+func (c *Config) WithMaxActorCount(actors int) *Config {
+	c.maxActorCount = actors
+	return c
+}
+
+func (c *Config) WithPrefix(id string) *Config {
+	c.workerPrefix = id
+	return c
+}
+
 func (c *Config) Validate() error {
 	if c.GroupID == "" {
 		return fmt.Errorf("groupID must be present: %w", ErrInvalidConfiguration)
 	}
-	if c.WorkerID == "" {
-		return fmt.Errorf("workerID must be present: %w", ErrInvalidConfiguration)
+	if c.WorkerID == "" && c.workerPrefix == "" {
+		return fmt.Errorf("workerID or prefix must be present: %w", ErrInvalidConfiguration)
 	}
 	if c.StreamARN == "" {
 		return fmt.Errorf("kinesis stream arn must be present and valid: %w", ErrInvalidConfiguration)

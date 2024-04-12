@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -28,17 +30,20 @@ func testConfig() *Config {
 		ReservationTable:   "table",
 		ShardID:            "shardID",
 		ReservationTimeout: 1 * time.Second,
+		logger:             slog.Default(),
 	}
 
 }
 func TestInit_InvalidConfig(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
-	config := &Config{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	config := &Config{
+		logger: logger,
+	}
 	config = config.WithDynamoClient(dc)
-	c := New(config, 0)
-	closer, err := c.Init(context.Background())
+	c := NewClient(config, 0)
+	err := c.Init(context.Background())
 	must.ErrorIs(t, err, ErrInvalidConfiguration)
-	must.Nil(t, closer)
 }
 
 func TestInit_ReserveShard(t *testing.T) {
@@ -52,11 +57,10 @@ func TestInit_ReserveShard(t *testing.T) {
 		},
 	}, nil)
 	config := testConfig().WithDynamoClient(dc)
-	c := New(config, 0)
+	c := NewClient(config, 0)
 	must.Nil(t, c.reservation)
-	closer, err := c.Init(ctx)
+	err := c.Init(ctx)
 	must.NoError(t, err)
-	must.NotNil(t, closer)
 	must.NotNil(t, c.reservation)
 	must.Eq(t, &Reservation{
 		GroupID: "testGroup",
@@ -134,8 +138,8 @@ func TestReserveShard(t *testing.T) {
 
 			dc := mocks.NewDynamoDBAPI(t)
 			dc.EXPECT().UpdateItem(ctx, input).Return(tc.out, tc.err).Once()
-			m := New(config.WithDynamoClient(dc), 0)
-			err := m.reserveShard(ctx)
+			m := NewClient(config.WithDynamoClient(dc), 0)
+			err := m.ReserveShard(ctx)
 			if tc.expectedError == nil {
 				must.NoError(t, err)
 			} else {
@@ -150,7 +154,7 @@ func TestReleaseReservation(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	config := testConfig().WithDynamoClient(dc)
-	m := New(config, 0)
+	m := NewClient(config, 0)
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTable,
 		Key: map[string]types.AttributeValue{
@@ -170,14 +174,14 @@ func TestReleaseReservation(t *testing.T) {
 		},
 	}
 	dc.EXPECT().UpdateItem(ctx, input).Return(nil, nil).Once()
-	err := m.releaseReservation(ctx)
+	err := m.ReleaseReservation(ctx)
 	must.NoError(t, err)
 }
 func TestReleaseReservation_Error(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	config := testConfig().WithDynamoClient(dc)
-	m := New(config, 0)
+	m := NewClient(config, 0)
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTable,
 		Key: map[string]types.AttributeValue{
@@ -198,20 +202,23 @@ func TestReleaseReservation_Error(t *testing.T) {
 	}
 	oops := errors.New("didn't work")
 	dc.EXPECT().UpdateItem(ctx, input).Return(nil, oops).Once()
-	err := m.releaseReservation(ctx)
+	err := m.ReleaseReservation(ctx)
 	must.ErrorIs(t, err, oops)
 }
 
 func TestIsReserved(t *testing.T) {
+	c := Client{
+		logger: slog.Default(),
+	}
 	reservations := []Reservation{}
 	shard := ktypes.Shard{
 		ShardId: aws.String("1"),
 	}
-	must.False(t, isReserved(reservations, shard))
+	must.False(t, c.IsReserved(reservations, shard))
 	reservations = append(reservations, Reservation{
 		ShardID: "1",
 	})
-	must.True(t, isReserved(reservations, shard))
+	must.True(t, c.IsReserved(reservations, shard))
 }
 
 func TestRetrieveRandomShardID(t *testing.T) {
@@ -320,7 +327,7 @@ func TestRetrieveRandomShardID(t *testing.T) {
 			kc := mocks.NewKinesisAPI(t)
 			config := testConfig().WithDynamoClient(dc).WithKinesisClient(kc)
 			tc.setup(dc, kc)
-			m := New(config, tc.offset)
+			m := NewClient(config, tc.offset)
 			s, err := m.retrieveRandomShardID(ctx)
 			must.Eq(t, tc.err, err)
 			must.Eq(t, tc.shard, s)
