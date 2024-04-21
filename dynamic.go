@@ -100,7 +100,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.logger.Error("could not bootstrap config", "error", err)
 		return err
 	}
-	m.internalClient = NewClient(m.config, 0)
+	m.internalClient = NewClient(m.config)
 	m.actors, m.ctx = errgroup.WithContext(ctx)
 	m.actors.Go(func() error {
 		if err := m.Loop(m.ctx); err != nil {
@@ -150,8 +150,9 @@ func (m *Manager) Loop(ctx context.Context) error {
 							WithStreamArn(m.config.StreamARN).
 							WithTableName(m.config.ReservationTable).
 							WithRenewTime(m.config.RenewTime).
-							WithReservationTimeout(m.config.ReservationTimeout)
-						client := NewClient(cfg, index)
+							WithReservationTimeout(m.config.ReservationTimeout).
+							WithSeed(index)
+						client := NewClient(cfg)
 						err := client.Init(ctx)
 						if err != nil {
 							if errors.Is(err, ErrShardReserved) {

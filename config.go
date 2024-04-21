@@ -38,6 +38,7 @@ type Config struct {
 	maxActorCount        int
 	workerPrefix         string
 	SleepAfterProcessing time.Duration
+	Seed                 int
 }
 
 func NewConfig() *Config {
@@ -118,6 +119,11 @@ func (c *Config) WithMaxActorCount(actors int) *Config {
 
 func (c *Config) WithPrefix(id string) *Config {
 	c.workerPrefix = id
+	return c
+}
+
+func (c *Config) WithSeed(seed int) *Config {
+	c.Seed = seed
 	return c
 }
 

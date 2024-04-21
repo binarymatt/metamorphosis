@@ -299,7 +299,7 @@ func defaultClient(workerID string) *Client {
 		WithDynamoClient(buildDynamoClient()).
 		WithKinesisClient(buildKinesisClient())
 
-	return NewClient(config, 0)
+	return NewClient(config)
 }
 
 func buildDynamoClient() DynamoDBAPI {
