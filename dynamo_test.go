@@ -24,7 +24,7 @@ func TestListReservations(t *testing.T) {
 	m := NewClient(NewConfig().
 		WithTableName("metamorphosis_reservations").
 		WithDynamoClient(dc).
-		WithGroup("testGroup"), 0)
+		WithGroup("testGroup"))
 
 	must.True(t, t.Run("happy path", func(t *testing.T) {
 		dc.EXPECT().Query(context.Background(), &dynamodb.QueryInput{
@@ -98,7 +98,7 @@ func TestCommitRecord(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
 	config := testConfig().WithDynamoClient(dc)
 	expires := now.Add(config.ReservationTimeout)
-	m := NewClient(config, 0)
+	m := NewClient(config)
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTable,
 		Key: map[string]types.AttributeValue{

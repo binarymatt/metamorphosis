@@ -25,16 +25,13 @@ type Client struct {
 	// internal fields
 	config      *Config
 	reservation *Reservation
-	seed        int
 	logger      *slog.Logger
 }
 
-func NewClient(config *Config, seed int) *Client {
-	slog.Info("setting up client", "seed", seed)
+func NewClient(config *Config) *Client {
 	return &Client{
-		seed:   seed,
 		config: config,
-		logger: config.logger.With("seed", seed, "worker", config.WorkerID, "group", config.GroupID),
+		logger: config.logger.With("seed", config.Seed, "worker", config.WorkerID, "group", config.GroupID),
 	}
 }
 func (c *Client) Init(ctx context.Context) error {
@@ -71,9 +68,11 @@ func (m *Client) retrieveRandomShardID(ctx context.Context) (string, error) {
 	}
 	shards := output.Shards
 	shardSize := len(shards)
+
+	seed := m.config.Seed
 	// Find first unreserved shard
 	for i := range shards {
-		index := m.seed + i
+		index := seed + i
 		if index > shardSize-1 {
 			index = index - shardSize
 		}

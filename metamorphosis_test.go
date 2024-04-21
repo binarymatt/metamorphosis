@@ -41,7 +41,7 @@ func TestInit_InvalidConfig(t *testing.T) {
 		logger: logger,
 	}
 	config = config.WithDynamoClient(dc)
-	c := NewClient(config, 0)
+	c := NewClient(config)
 	err := c.Init(context.Background())
 	must.ErrorIs(t, err, ErrInvalidConfiguration)
 }
@@ -57,7 +57,7 @@ func TestInit_ReserveShard(t *testing.T) {
 		},
 	}, nil)
 	config := testConfig().WithDynamoClient(dc)
-	c := NewClient(config, 0)
+	c := NewClient(config)
 	must.Nil(t, c.reservation)
 	err := c.Init(ctx)
 	must.NoError(t, err)
@@ -138,7 +138,7 @@ func TestReserveShard(t *testing.T) {
 
 			dc := mocks.NewDynamoDBAPI(t)
 			dc.EXPECT().UpdateItem(ctx, input).Return(tc.out, tc.err).Once()
-			m := NewClient(config.WithDynamoClient(dc), 0)
+			m := NewClient(config.WithDynamoClient(dc))
 			err := m.ReserveShard(ctx)
 			if tc.expectedError == nil {
 				must.NoError(t, err)
@@ -154,7 +154,7 @@ func TestReleaseReservation(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	config := testConfig().WithDynamoClient(dc)
-	m := NewClient(config, 0)
+	m := NewClient(config)
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTable,
 		Key: map[string]types.AttributeValue{
@@ -181,7 +181,7 @@ func TestReleaseReservation_Error(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	config := testConfig().WithDynamoClient(dc)
-	m := NewClient(config, 0)
+	m := NewClient(config)
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTable,
 		Key: map[string]types.AttributeValue{
@@ -325,9 +325,9 @@ func TestRetrieveRandomShardID(t *testing.T) {
 		must.True(t, t.Run(tc.name, func(t *testing.T) {
 			dc := mocks.NewDynamoDBAPI(t)
 			kc := mocks.NewKinesisAPI(t)
-			config := testConfig().WithDynamoClient(dc).WithKinesisClient(kc)
+			config := testConfig().WithDynamoClient(dc).WithKinesisClient(kc).WithSeed(tc.offset)
 			tc.setup(dc, kc)
-			m := NewClient(config, tc.offset)
+			m := NewClient(config)
 			s, err := m.retrieveRandomShardID(ctx)
 			must.Eq(t, tc.err, err)
 			must.Eq(t, tc.shard, s)

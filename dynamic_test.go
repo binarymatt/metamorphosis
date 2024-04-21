@@ -31,7 +31,7 @@ func TestNew(t *testing.T) {
 
 func TestActorWork_NoReservation(t *testing.T) {
 	config := testConfig()
-	cl := NewClient(config, 0)
+	cl := NewClient(config)
 	a := Actor{
 		id: "test",
 		mc: cl,
@@ -106,7 +106,7 @@ func TestManager_LoopNoShards(t *testing.T) {
 	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc)
 	config.MangerLoopWaitTime = 100 * time.Millisecond
 	m := New(context.Background(), config)
-	m.internalClient = NewClient(config, 0)
+	m.internalClient = NewClient(config)
 	kc.EXPECT().DescribeStream(ctx, &kinesis.DescribeStreamInput{
 		StreamARN: aws.String("arn"),
 	}).
@@ -161,7 +161,7 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 		return nil
 	}
 	m := New(context.Background(), config)
-	m.internalClient = NewClient(config, 0)
+	m.internalClient = NewClient(config)
 
 	// mock get available shards
 	kc.EXPECT().DescribeStream(ctx, &kinesis.DescribeStreamInput{
