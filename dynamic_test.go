@@ -132,7 +132,7 @@ func TestManager_LoopNoShards(t *testing.T) {
 	}).
 		Return(&dynamodb.QueryOutput{}, nil)
 	eg.Go(func() error {
-		return m.Loop(ctx)
+		return m.RefreshActorLoop(ctx)
 	})
 	eg.Go(func() error {
 		time.Sleep(200 * time.Millisecond)
@@ -296,7 +296,7 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 		}, nil).Once()
 
 	eg.Go(func() error {
-		return m.Loop(ctx)
+		return m.RefreshActorLoop(ctx)
 	})
 	eg.Go(func() error {
 		time.Sleep(109 * time.Millisecond)

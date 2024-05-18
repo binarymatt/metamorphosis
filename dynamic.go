@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -78,6 +79,7 @@ type Manager struct {
 	workerIDs         []string
 	currentActorCount int
 	cacheLastChecked  time.Time
+	lock              sync.Mutex
 }
 
 func New(ctx context.Context, config *Config) *Manager {
@@ -103,14 +105,14 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.internalClient = NewClient(m.config)
 	m.actors, m.ctx = errgroup.WithContext(ctx)
 	m.actors.Go(func() error {
-		if err := m.Loop(m.ctx); err != nil {
+		if err := m.RefreshActorLoop(m.ctx); err != nil {
 			return err
 		}
 		return nil
 	})
 	return m.actors.Wait()
 }
-func (m *Manager) Loop(ctx context.Context) error {
+func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 	// check shard count
 	ticker := time.NewTicker(m.config.MangerLoopWaitTime)
 	m.logger.Info("starting loop")
