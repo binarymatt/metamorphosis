@@ -75,11 +75,14 @@ type Manager struct {
 	ctx            context.Context
 	internalClient API
 
-	cachedShards      map[string]types.Shard
-	workerIDs         []string
+	workerIDs   []string
+	workerMutex sync.Mutex
+
 	currentActorCount int
-	cacheLastChecked  time.Time
-	lock              sync.Mutex
+	actorCountMutex   sync.Mutex
+
+	cacheLastChecked time.Time
+	cachedShards     map[string]types.Shard
 }
 
 func New(ctx context.Context, config *Config) *Manager {
@@ -136,7 +139,9 @@ func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 				if m.currentActorCount < m.config.maxActorCount {
 					// add more actors
 					m.logger.Info("adding actor", "current_count", m.currentActorCount, "current_workers", m.workerIDs)
+					m.actorCountMutex.Lock()
 					index := m.currentActorCount
+					m.actorCountMutex.Unlock()
 					m.actors.Go(func() error {
 						workerID := fmt.Sprintf("%s.%d", m.config.workerPrefix, index)
 						m.logger.Info("setting up actor inside error group", "index", index)
@@ -185,20 +190,37 @@ func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 							// }
 							//cancel()
 							logger.Warn("removing actor count")
-							m.currentActorCount--
+							m.DecrementActorCount()
 
 						}()
+						m.workerMutex.Lock()
 						m.workerIDs = append(m.workerIDs, workerID)
-						logger.Info("inside routine, starting work", "index", index)
+						m.workerMutex.Unlock()
+						logger.Debug("inside routine, starting work", "index", m.currentActorCount)
 						return worker.Work(m.ctx)
 					})
 					m.logger.Info("added worker with index", "index", index, "worker_count", m.currentActorCount)
-					m.currentActorCount++
+					m.IncrementActorCount()
 				}
 			}
 		}
 	}
 }
+
+func (m *Manager) IncrementActorCount() {
+	m.actorCountMutex.Lock()
+	m.currentActorCount++
+	m.actorCountMutex.Unlock()
+}
+
+func (m *Manager) DecrementActorCount() {
+	m.actorCountMutex.Lock()
+	m.currentActorCount--
+	m.actorCountMutex.Unlock()
+}
+
+func (m *Manager) AddActorID(id string)    {}
+func (m *Manager) RemoveActorID(id string) {}
 
 func (m *Manager) CheckForAvailableShards(ctx context.Context) ([]types.Shard, error) {
 	m.logger.Info("checking for available shards", "current_actors", m.currentActorCount, "max_actors", m.config.maxActorCount)
