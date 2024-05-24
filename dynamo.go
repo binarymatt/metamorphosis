@@ -58,7 +58,7 @@ type DynamoDBAPI interface {
 
 func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
 	m.logger.Info("listing reservations")
-	client := m.config.dynamoClient
+	client := m.config.DynamoClient
 	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(m.config.GroupID))
 
 	now := Now()
@@ -74,7 +74,7 @@ func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
 	}
 
 	input := &dynamodb.QueryInput{
-		TableName:                 aws.String(m.config.ReservationTable),
+		TableName:                 aws.String(m.config.ReservationTableName),
 		ExpressionAttributeNames:  expr.Names(),
 		ExpressionAttributeValues: expr.Values(),
 		KeyConditionExpression:    expr.KeyCondition(),
@@ -92,7 +92,7 @@ func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
 	return reservations, err
 }
 func (c *Client) ReserveShard(ctx context.Context) error {
-	client := c.config.dynamoClient
+	client := c.config.DynamoClient
 	logger := c.logger.With("shard", c.config.ShardID, "timeout", c.config.ReservationTimeout, "worker", c.config.WorkerID, "group", c.config.GroupID)
 	logger.Info("starting shard reservation")
 	// 1. Is there an existing reservation for this group/worker, if so use that.
@@ -117,7 +117,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 		return err
 	}
 	input := &dynamodb.UpdateItemInput{
-		TableName: &c.config.ReservationTable,
+		TableName: &c.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
 			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupID},
 			ShardIDKey: &types.AttributeValueMemberS{Value: c.config.ShardID},
@@ -150,7 +150,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 }
 
 func (m *Client) ReleaseReservation(ctx context.Context) error {
-	client := m.config.dynamoClient
+	client := m.config.DynamoClient
 	condition := expression.Name(WorkerIDKey).Equal(expression.Value(m.config.WorkerID))
 
 	update := expression.Set(expression.Name(WorkerIDKey), expression.Value(m.config.WorkerID)).
@@ -166,7 +166,7 @@ func (m *Client) ReleaseReservation(ctx context.Context) error {
 	}
 
 	_, err = client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: &m.config.ReservationTable,
+		TableName: &m.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
 			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
 			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
@@ -198,7 +198,7 @@ func (m *Client) RenewReservation(ctx context.Context) error {
 
 func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Record) error {
 	sequence := record.Sequence
-	client := m.config.dynamoClient
+	client := m.config.DynamoClient
 
 	condition := expression.Name(WorkerIDKey).Equal(expression.Value(m.config.WorkerID))
 
@@ -219,7 +219,7 @@ func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Recor
 			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
 			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
 		},
-		TableName:                 &m.config.ReservationTable,
+		TableName:                 &m.config.ReservationTableName,
 		ConditionExpression:       expr.Condition(),
 		UpdateExpression:          expr.Update(),
 		ExpressionAttributeNames:  expr.Names(),
@@ -250,11 +250,11 @@ func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Recor
 }
 
 func (m *Client) fetchReservation(ctx context.Context) (*Reservation, error) {
-	client := m.config.dynamoClient
+	client := m.config.DynamoClient
 
-	m.logger.Info("fetching reservation", "group", m.config.GroupID, "shard", m.config.ShardID, "table", m.config.ReservationTable)
+	m.logger.Info("fetching reservation", "group", m.config.GroupID, "shard", m.config.ShardID, "table", m.config.ReservationTableName)
 	input := &dynamodb.GetItemInput{
-		TableName: &m.config.ReservationTable,
+		TableName: &m.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
 			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
 			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},

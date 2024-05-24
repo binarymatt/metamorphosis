@@ -43,7 +43,7 @@ func TestManager_shardStateCached(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
-	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc).WithShardCacheDuration(1 * time.Second)
+	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
 	m := New(ctx, config)
 	m.cacheLastChecked = time.Now()
 	err := m.shardsState(ctx)
@@ -54,7 +54,7 @@ func TestManager_shardStateRefresh(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
-	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc).WithShardCacheDuration(1 * time.Second)
+	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
 	m := New(ctx, config)
 	m.cacheLastChecked = time.Now().Add(-1 * time.Hour)
 
@@ -82,7 +82,7 @@ func TestManager_shardStateKinesisError(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
-	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc).WithShardCacheDuration(1 * time.Second)
+	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
 	m := New(ctx, config)
 	m.cacheLastChecked = time.Now().Add(-1 * time.Hour)
 
@@ -103,7 +103,7 @@ func TestManager_LoopNoShards(t *testing.T) {
 	eg, ctx := errgroup.WithContext(ctx)
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
-	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc)
+	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc))
 	config.MangerLoopWaitTime = 100 * time.Millisecond
 	m := New(context.Background(), config)
 	m.internalClient = NewClient(config)
@@ -154,10 +154,10 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	eg, ctx := errgroup.WithContext(ctx)
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
-	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc).WithMaxActorCount(1).WithPrefix("worker")
+	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithMaxActorCount(1), WithPrefix("worker"))
 	config.SleepAfterProcessing = 10 * time.Millisecond
 	config.MangerLoopWaitTime = 100 * time.Millisecond
-	config.recordProcessor = func(ctx context.Context, record *metamorphosisv1.Record) error {
+	config.RecordProcessor = func(ctx context.Context, record *metamorphosisv1.Record) error {
 		return nil
 	}
 	m := New(context.Background(), config)
@@ -241,7 +241,7 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	// mock commit record
 	dc.EXPECT().UpdateItem(mock.AnythingOfType("*context.cancelCtx"), &dynamodb.UpdateItemInput{
 
-		TableName: &config.ReservationTable,
+		TableName: &config.ReservationTableName,
 		Key: map[string]dtypes.AttributeValue{
 			GroupIDKey: &dtypes.AttributeValueMemberS{Value: config.GroupID},
 			ShardIDKey: &dtypes.AttributeValueMemberS{Value: "shard1"},

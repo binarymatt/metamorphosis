@@ -289,15 +289,15 @@ func (i *IntegrationTestSuite) addKinesisRecord(id string) {
 	must.NoError(i.T(), err)
 }
 func defaultClient(workerID string) *Client {
-	config := NewConfig().
-		WithGroup(group).
-		WithWorkerID(workerID).
-		WithStreamArn(streamARN).
-		WithTableName(tableName).
-		WithReservationTimeout(1 * time.Minute).
-		WithShardID(shard).
-		WithDynamoClient(buildDynamoClient()).
-		WithKinesisClient(buildKinesisClient())
+	config := NewConfig(
+		WithGroup(group),
+		WithWorkerID(workerID),
+		WithStreamArn(streamARN),
+		WithReservationTableName(tableName),
+		WithReservationTimeout(1*time.Minute),
+		WithShardID(shard),
+		WithDynamoClient(buildDynamoClient()),
+		WithKinesisClient(buildKinesisClient()))
 
 	return NewClient(config)
 }

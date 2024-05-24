@@ -1,19 +1,17 @@
 package metamorphosis
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/shoenig/test/must"
 )
 
 func TestValidate_HappyPath(t *testing.T) {
 	config := &Config{
-		GroupID:          "group",
-		WorkerID:         "worker",
-		StreamARN:        "arn",
-		ReservationTable: "table",
+		GroupID:              "group",
+		WorkerID:             "worker",
+		StreamARN:            "arn",
+		ReservationTableName: "table",
 	}
 
 	err := config.Validate()
@@ -28,9 +26,9 @@ func TestValidate_MissingInfo(t *testing.T) {
 		{
 			name: "missing group",
 			config: &Config{
-				WorkerID:         "worker",
-				StreamARN:        "arn",
-				ReservationTable: "table",
+				WorkerID:             "worker",
+				StreamARN:            "arn",
+				ReservationTableName: "table",
 			},
 			err: ErrInvalidConfiguration,
 		},
@@ -44,37 +42,22 @@ func TestValidate_MissingInfo(t *testing.T) {
 	}
 }
 
-func TestBootstrap(t *testing.T) {
+func TestConfigOptions(t *testing.T) {
+	c := NewConfig(
 
-	config := &Config{
-		GroupID:          "group",
-		WorkerID:         "worker",
-		StreamARN:        "arn",
-		ReservationTable: "table",
-	}
-	must.Zero(t, config.ReservationTimeout)
-	err := config.Bootstrap(context.Background())
-	must.NoError(t, err)
-	must.Eq(t, 1*time.Minute, config.ReservationTimeout)
-	must.NotNil(t, config.kinesisClient)
-	must.NotNil(t, config.dynamoClient)
-}
+		WithGroup("testGroup"),
 
-func TestConfigAnnotations(t *testing.T) {
-	c := NewConfig()
+		WithWorkerID("workerID"),
 
-	c.WithGroup("testGroup")
+		WithStreamArn("stream:arn"),
+		WithReservationTableName("reservation_table"),
+		WithShardID("shardOne"),
+	)
 	must.Eq(t, "testGroup", c.GroupID)
-
-	c.WithWorkerID("workerID")
 	must.Eq(t, "workerID", c.WorkerID)
-
-	c.WithStreamArn("stream:arn")
 	must.Eq(t, "stream:arn", c.StreamARN)
 
-	c.WithTableName("reservation_table")
-	must.Eq(t, "reservation_table", c.ReservationTable)
+	must.Eq(t, "reservation_table", c.ReservationTableName)
 
-	c.WithShardID("shardOne")
 	must.Eq(t, "shardOne", c.ShardID)
 }

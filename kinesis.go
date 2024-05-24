@@ -34,7 +34,7 @@ type PutRecordsRequest struct {
 }
 
 func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
-	kc := m.config.kinesisClient
+	kc := m.config.KinesisClient
 	m.logger.Debug("getting shard iterator")
 	if m.reservation == nil {
 		return nil, ErrMissingReservation
@@ -60,7 +60,7 @@ func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 
 func (m *Client) PutRecords(ctx context.Context, req *PutRecordsRequest) error {
 	m.logger.Info("adding records to stream")
-	kc := m.config.kinesisClient
+	kc := m.config.KinesisClient
 	kinesisRecords := make([]types.PutRecordsRequestEntry, len(req.Records))
 	for i, record := range req.Records {
 		data, err := proto.Marshal(record)
@@ -95,7 +95,7 @@ func (m *Client) FetchRecord(ctx context.Context) (*metamorphosisv1.Record, erro
 }
 
 func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv1.Record, error) {
-	kc := m.config.kinesisClient
+	kc := m.config.KinesisClient
 	if m.reservation == nil {
 		m.logger.Error("reservation not present")
 		r, err := m.fetchReservation(ctx)
