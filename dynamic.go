@@ -92,7 +92,7 @@ func New(ctx context.Context, config *Config) *Manager {
 		config:            config,
 		actors:            eg,
 		ctx:               ctx,
-		logger:            config.logger.With("service", "manager"),
+		logger:            config.Logger.With("service", "manager"),
 		cachedShards:      map[string]types.Shard{},
 	}
 }
@@ -100,10 +100,6 @@ func New(ctx context.Context, config *Config) *Manager {
 func (m *Manager) Start(ctx context.Context) error {
 	if m.logger == nil {
 		m.logger = slog.Default()
-	}
-	if err := m.config.Bootstrap(ctx); err != nil {
-		m.logger.Error("could not bootstrap config", "error", err)
-		return err
 	}
 	m.internalClient = NewClient(m.config)
 	m.actors, m.ctx = errgroup.WithContext(ctx)
@@ -117,7 +113,7 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 	// check shard count
-	ticker := time.NewTicker(m.config.MangerLoopWaitTime)
+	ticker := time.NewTicker(m.config.ManagerLoopWaitTime)
 	m.logger.Info("starting loop")
 	for {
 		select {
@@ -136,29 +132,30 @@ func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 			}
 			m.logger.Info("available shards", "count", len(shards))
 			for _, shard := range shards {
-				if m.currentActorCount < m.config.maxActorCount {
+				if m.currentActorCount < m.config.MaxActorCount {
 					// add more actors
 					m.logger.Info("adding actor", "current_count", m.currentActorCount, "current_workers", m.workerIDs)
 					m.actorCountMutex.Lock()
 					index := m.currentActorCount
 					m.actorCountMutex.Unlock()
 					m.actors.Go(func() error {
-						workerID := fmt.Sprintf("%s.%d", m.config.workerPrefix, index)
+						workerID := fmt.Sprintf("%s.%d", m.config.WorkerPrefix, index)
 						m.logger.Info("setting up actor inside error group", "index", index)
-						logger := m.config.logger.With("service", "actor")
-						cfg := NewConfig().
-							WithLogger(logger).
-							WithGroup(m.config.GroupID).
-							WithWorkerID(workerID).
-							WithStreamArn(m.config.StreamARN).
-							WithKinesisClient(m.config.kinesisClient).
-							WithDynamoClient(m.config.dynamoClient).
-							WithShardID(*shard.ShardId).
-							WithStreamArn(m.config.StreamARN).
-							WithTableName(m.config.ReservationTable).
-							WithRenewTime(m.config.RenewTime).
-							WithReservationTimeout(m.config.ReservationTimeout).
-							WithSeed(index)
+						logger := m.config.Logger.With("service", "actor")
+						cfg := NewConfig(
+							WithLogger(logger),
+							WithGroup(m.config.GroupID),
+							WithWorkerID(workerID),
+							WithStreamArn(m.config.StreamARN),
+							WithKinesisClient(m.config.KinesisClient),
+							WithDynamoClient(m.config.DynamoClient),
+							WithShardID(*shard.ShardId),
+							WithStreamArn(m.config.StreamARN),
+							WithReservationTableName(m.config.ReservationTableName),
+							WithRenewTime(m.config.RenewTime),
+							WithReservationTimeout(m.config.ReservationTimeout),
+							WithSeed(index),
+						)
 						client := NewClient(cfg)
 						err := client.Init(ctx)
 						if err != nil {
@@ -172,7 +169,7 @@ func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 							id:                   workerID,
 							mc:                   client,
 							logger:               logger,
-							processor:            m.config.recordProcessor,
+							processor:            m.config.RecordProcessor,
 							SleepAfterProcessing: m.config.SleepAfterProcessing,
 						}
 						if cfg.RenewTime > 0 {
@@ -223,7 +220,7 @@ func (m *Manager) AddActorID(id string)    {}
 func (m *Manager) RemoveActorID(id string) {}
 
 func (m *Manager) CheckForAvailableShards(ctx context.Context) ([]types.Shard, error) {
-	m.logger.Info("checking for available shards", "current_actors", m.currentActorCount, "max_actors", m.config.maxActorCount)
+	m.logger.Info("checking for available shards", "current_actors", m.currentActorCount, "max_actors", m.config.MaxActorCount)
 	// List Shards
 	if err := m.shardsState(ctx); err != nil {
 		m.logger.Error("error updated shard state", "error", err)
@@ -248,12 +245,12 @@ func (m *Manager) CheckForAvailableShards(ctx context.Context) ([]types.Shard, e
 func (m *Manager) shardsState(ctx context.Context) error {
 	// do we need to check state again
 	now := Now()
-	if now.Before(m.cacheLastChecked.Add(m.config.shardCacheDuration)) {
+	if now.Before(m.cacheLastChecked.Add(m.config.ShardCacheDuration)) {
 		m.logger.Debug("cache hasn't expired")
 		return nil
 	}
 
-	out, err := m.config.kinesisClient.DescribeStream(ctx, &kinesis.DescribeStreamInput{
+	out, err := m.config.KinesisClient.DescribeStream(ctx, &kinesis.DescribeStreamInput{
 		StreamARN: &m.config.StreamARN,
 	})
 	if err != nil {

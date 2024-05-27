@@ -21,10 +21,10 @@ func TestListReservations(t *testing.T) {
 		return n
 	}
 	dc := mocks.NewDynamoDBAPI(t)
-	m := NewClient(NewConfig().
-		WithTableName("metamorphosis_reservations").
-		WithDynamoClient(dc).
-		WithGroup("testGroup"))
+	m := NewClient(NewConfig(
+		WithReservationTableName("metamorphosis_reservations"),
+		WithDynamoClient(dc),
+		WithGroup("testGroup")))
 
 	must.True(t, t.Run("happy path", func(t *testing.T) {
 		dc.EXPECT().Query(context.Background(), &dynamodb.QueryInput{
@@ -96,11 +96,11 @@ func TestCommitRecord(t *testing.T) {
 	}
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
-	config := testConfig().WithDynamoClient(dc)
+	config := testConfig(WithDynamoClient(dc))
 	expires := now.Add(config.ReservationTimeout)
 	m := NewClient(config)
 	input := &dynamodb.UpdateItemInput{
-		TableName: &config.ReservationTable,
+		TableName: &config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
 			GroupIDKey: &types.AttributeValueMemberS{Value: config.GroupID},
 			ShardIDKey: &types.AttributeValueMemberS{Value: config.ShardID},

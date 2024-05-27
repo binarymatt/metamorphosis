@@ -22,7 +22,7 @@ func TestGetShardIterator(t *testing.T) {
 
 	must.True(t, t.Run("missing reservation", func(t *testing.T) {
 		kc := mocks.NewKinesisAPI(t)
-		config := testConfig().WithKinesisClient(kc)
+		config := testConfig(WithKinesisClient(kc))
 		m := NewClient(config)
 
 		iterator, err := m.getShardIterator(context.Background())
@@ -31,7 +31,7 @@ func TestGetShardIterator(t *testing.T) {
 	}))
 	must.True(t, t.Run("after sequence", func(t *testing.T) {
 		kc := mocks.NewKinesisAPI(t)
-		config := testConfig().WithKinesisClient(kc)
+		config := testConfig(WithKinesisClient(kc))
 		m := NewClient(config)
 		m.reservation = &Reservation{
 			LatestSequence: "last",
@@ -53,7 +53,7 @@ func TestGetShardIterator(t *testing.T) {
 	}))
 	must.True(t, t.Run("trim horizon", func(t *testing.T) {
 		kc := mocks.NewKinesisAPI(t)
-		config := testConfig().WithKinesisClient(kc)
+		config := testConfig(WithKinesisClient(kc))
 		m := NewClient(config)
 		m.reservation = &Reservation{
 			LatestSequence: "",
@@ -74,7 +74,7 @@ func TestGetShardIterator(t *testing.T) {
 	}))
 	must.True(t, t.Run("kinesis error", func(t *testing.T) {
 		kc := mocks.NewKinesisAPI(t)
-		config := testConfig().WithKinesisClient(kc)
+		config := testConfig(WithKinesisClient(kc))
 		m := NewClient(config)
 		m.reservation = &Reservation{
 			LatestSequence: "",
@@ -96,7 +96,7 @@ func TestGetShardIterator(t *testing.T) {
 
 func TestPutRecords(t *testing.T) {
 	kc := mocks.NewKinesisAPI(t)
-	config := testConfig().WithKinesisClient(kc)
+	config := testConfig(WithKinesisClient(kc))
 	m := NewClient(config)
 	record := &metamorphosisv1.Record{
 		Id:   "partitionKey",
@@ -124,7 +124,7 @@ func TestFetchRecords(t *testing.T) {
 
 	kc := mocks.NewKinesisAPI(t)
 	dc := mocks.NewDynamoDBAPI(t)
-	config := testConfig().WithKinesisClient(kc).WithDynamoClient(dc)
+	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc))
 	m := NewClient(config)
 
 	dc.EXPECT().GetItem(ctx, &dynamodb.GetItemInput{

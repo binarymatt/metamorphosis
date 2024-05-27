@@ -31,14 +31,11 @@ type Client struct {
 func NewClient(config *Config) *Client {
 	return &Client{
 		config: config,
-		logger: config.logger.With("seed", config.Seed, "worker", config.WorkerID, "group", config.GroupID),
+		logger: config.Logger.With("seed", config.Seed, "worker", config.WorkerID, "group", config.GroupID),
 	}
 }
 func (c *Client) Init(ctx context.Context) error {
 	c.logger.Info("initializing metamorphosis client")
-	if err := c.config.Bootstrap(ctx); err != nil {
-		return err
-	}
 
 	if err := c.config.Validate(); err != nil {
 		return err
@@ -59,7 +56,7 @@ func (m *Client) retrieveRandomShardID(ctx context.Context) (string, error) {
 	}
 	m.logger.Info("list shards to retrieve random")
 	// List Shards
-	output, err := m.config.kinesisClient.ListShards(ctx, &kinesis.ListShardsInput{
+	output, err := m.config.KinesisClient.ListShards(ctx, &kinesis.ListShardsInput{
 		StreamARN: aws.String(m.config.StreamARN),
 	})
 	if err != nil {
