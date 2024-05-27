@@ -25,7 +25,7 @@ type Config struct {
 	ShardID              string
 	ReservationTimeout   time.Duration
 	RenewTime            time.Duration
-	MangerLoopWaitTime   time.Duration
+	ManagerLoopWaitTime  time.Duration
 	RecordProcessor      RecordProcessor
 	Logger               *slog.Logger
 	ShardCacheDuration   time.Duration

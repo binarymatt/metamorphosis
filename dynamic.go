@@ -108,7 +108,7 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 func (m *Manager) Loop(ctx context.Context) error {
 	// check shard count
-	ticker := time.NewTicker(m.config.MangerLoopWaitTime)
+	ticker := time.NewTicker(m.config.ManagerLoopWaitTime)
 	m.logger.Info("starting loop")
 	for {
 		select {

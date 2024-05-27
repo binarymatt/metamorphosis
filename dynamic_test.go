@@ -104,7 +104,7 @@ func TestManager_LoopNoShards(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc))
-	config.MangerLoopWaitTime = 100 * time.Millisecond
+	config.ManagerLoopWaitTime = 100 * time.Millisecond
 	m := New(context.Background(), config)
 	m.internalClient = NewClient(config)
 	kc.EXPECT().DescribeStream(ctx, &kinesis.DescribeStreamInput{
@@ -156,7 +156,7 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithMaxActorCount(1), WithPrefix("worker"))
 	config.SleepAfterProcessing = 10 * time.Millisecond
-	config.MangerLoopWaitTime = 100 * time.Millisecond
+	config.ManagerLoopWaitTime = 100 * time.Millisecond
 	config.RecordProcessor = func(ctx context.Context, record *metamorphosisv1.Record) error {
 		return nil
 	}
