@@ -154,7 +154,7 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	eg, ctx := errgroup.WithContext(ctx)
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
-	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithMaxActorCount(1), WithPrefix("worker"))
+	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithMaxActorCount(1), WithWorkerPrefix("worker"))
 	config.SleepAfterProcessing = 10 * time.Millisecond
 	config.ManagerLoopWaitTime = 100 * time.Millisecond
 	config.RecordProcessor = func(ctx context.Context, record *metamorphosisv1.Record) error {

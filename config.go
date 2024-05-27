@@ -120,7 +120,7 @@ func WithMaxActorCount(actors int) Option {
 	}
 }
 
-func WithPrefix(id string) Option {
+func WithWorkerPrefix(id string) Option {
 	return func(c *Config) {
 		c.WorkerPrefix = id
 	}
