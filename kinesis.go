@@ -129,7 +129,7 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 		}
 		records[i] = r
 	}
-	m.logger.Info("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
+	m.logger.Debug("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
 
 	return records, nil
 }
