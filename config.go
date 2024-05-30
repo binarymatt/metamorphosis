@@ -33,6 +33,7 @@ type Config struct {
 	WorkerPrefix         string
 	SleepAfterProcessing time.Duration
 	Seed                 int
+	BatchSize            int32
 }
 
 type Option func(*Config)
@@ -129,6 +130,18 @@ func WithWorkerPrefix(id string) Option {
 func WithSeed(seed int) Option {
 	return func(c *Config) {
 		c.Seed = seed
+	}
+}
+
+func WithManagerLoopWaitTime(d time.Duration) Option {
+	return func(c *Config) {
+		c.ManagerLoopWaitTime = d
+	}
+}
+
+func WithBatchSize(size int32) Option {
+	return func(c *Config) {
+		c.BatchSize = size
 	}
 }
 

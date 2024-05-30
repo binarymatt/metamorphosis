@@ -16,6 +16,7 @@ import (
 )
 
 type ClientContextKey struct{}
+type LoggerContextKey struct{}
 type RecordProcessor = func(context.Context, *metamorphosisv1.Record) error
 
 type Actor struct {
@@ -24,6 +25,7 @@ type Actor struct {
 	processor            RecordProcessor
 	logger               *slog.Logger
 	SleepAfterProcessing time.Duration
+	batchSize            int32
 }
 
 func (a *Actor) Work(ctx context.Context) error {
@@ -38,26 +40,34 @@ func (a *Actor) Work(ctx context.Context) error {
 			return ctx.Err()
 		default:
 			a.logger.Debug("fetching record")
-			record, err := a.mc.FetchRecord(ctx)
+			records, err := a.mc.FetchRecords(ctx, a.batchSize)
 			if err != nil {
-				a.logger.Error("error fetching record", "error", err)
+				a.logger.Error("error fetching record(s)", "error", err, "batch_size", a.batchSize)
 				return err
 			}
-			if record == nil {
+			if records == nil {
 				a.logger.Debug("record is nil")
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			a.logger.Debug("processing record", "record", record)
-			ctxWithClient := context.WithValue(ctx, ClientContextKey{}, a.mc)
-			if err := a.processor(ctxWithClient, record); err != nil {
-				a.logger.Error("error processing record", "error", err, "processor", a.processor)
-				return err
-			}
-			a.logger.Debug("commiting record")
-			if err := a.mc.CommitRecord(ctx, record); err != nil {
-				a.logger.Error("error commiting record", "error", err)
-				return err
+			for _, record := range records {
+				if record == nil {
+					a.logger.Debug("record is nil")
+					continue
+				}
+				a.logger.Debug("processing record", "record", record)
+
+				ctxWithClient := context.WithValue(ctx, ClientContextKey{}, a.mc)
+				ctxWithLogger := context.WithValue(ctxWithClient, LoggerContextKey{}, a.logger)
+				if err := a.processor(ctxWithLogger, record); err != nil {
+					a.logger.Error("error processing record", "error", err, "processor", a.processor)
+					return err
+				}
+				a.logger.Debug("commiting record")
+				if err := a.mc.CommitRecord(ctx, record); err != nil {
+					a.logger.Error("error commiting record", "error", err)
+					return err
+				}
 			}
 			a.logger.Debug("checking sleep", "sleep_time", a.SleepAfterProcessing)
 			if a.SleepAfterProcessing != 0 {
@@ -150,7 +160,6 @@ func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 							WithKinesisClient(m.config.KinesisClient),
 							WithDynamoClient(m.config.DynamoClient),
 							WithShardID(*shard.ShardId),
-							WithStreamArn(m.config.StreamARN),
 							WithReservationTableName(m.config.ReservationTableName),
 							WithRenewTime(m.config.RenewTime),
 							WithReservationTimeout(m.config.ReservationTimeout),
@@ -171,6 +180,7 @@ func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 							logger:               logger,
 							processor:            m.config.RecordProcessor,
 							SleepAfterProcessing: m.config.SleepAfterProcessing,
+							batchSize:            m.config.BatchSize,
 						}
 						if cfg.RenewTime > 0 {
 							go func(ctx context.Context) {
