@@ -50,14 +50,21 @@ func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 		input.ShardIteratorType = types.ShardIteratorTypeTrimHorizon
 	}
 	m.logger.Debug("shard iterator input", "input", *input)
-	out, err := kc.GetShardIterator(ctx, input)
-	if err != nil {
-		m.logger.Error("error getting shard iterator", "error", err)
-		return nil, err
+	if m.nextIterator == nil {
+		m.logger.Warn("getting iterator from api")
+		out, err := kc.GetShardIterator(ctx, input)
+		if err != nil {
+			m.logger.Error("error getting shard iterator", "error", err)
+			return nil, err
+		}
+		m.nextIterator = out.ShardIterator
 	}
-	return out.ShardIterator, nil
+	return m.nextIterator, nil
 }
 
+func (m *Client) ClearIterator() {
+	m.nextIterator = nil
+}
 func (m *Client) PutRecords(ctx context.Context, req *PutRecordsRequest) error {
 	m.logger.Info("adding records to stream")
 	kc := m.config.KinesisClient
@@ -110,6 +117,9 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 	if err != nil {
 		return nil, err
 	}
+	if iterator == nil {
+		m.logger.Warn("iterator is nil shard might be closed")
+	}
 	input := &kinesis.GetRecordsInput{
 		ShardIterator: iterator,
 		StreamARN:     &m.config.StreamARN,
@@ -120,6 +130,7 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 		m.logger.Error("error getting records from kinesis", "error", err)
 		return nil, err
 	}
+	nextIterator := output.NextShardIterator
 	records := make([]*metamorphosisv1.Record, len(output.Records))
 	for i, kr := range output.Records {
 		r, err := m.translateRecord(kr)
@@ -129,8 +140,10 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 		}
 		records[i] = r
 	}
-	m.logger.Debug("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
-
+	m.logger.Info("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
+	if nextIterator != nil {
+		m.nextIterator = nextIterator
+	}
 	return records, nil
 }
 func (m *Client) translateRecord(kinesisRecord types.Record) (*metamorphosisv1.Record, error) {

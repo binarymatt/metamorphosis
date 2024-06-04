@@ -20,12 +20,14 @@ type API interface {
 	CurrentReservation() *Reservation
 	ListReservations(ctx context.Context) ([]Reservation, error)
 	IsReserved(reservations []Reservation, shard ktypes.Shard) bool
+	ClearIterator()
 }
 type Client struct {
 	// internal fields
-	config      *Config
-	reservation *Reservation
-	logger      *slog.Logger
+	config       *Config
+	reservation  *Reservation
+	logger       *slog.Logger
+	nextIterator *string
 }
 
 func NewClient(config *Config) *Client {

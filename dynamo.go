@@ -145,6 +145,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 		return err
 	}
 	c.reservation = &reservation
+	c.logger = c.logger.With("shard_id", reservation.ShardID)
 	c.logger.Info("reservation made", "expires", expires, "sequence", c.reservation.LatestSequence)
 	return nil
 }

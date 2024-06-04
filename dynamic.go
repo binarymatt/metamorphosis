@@ -28,6 +28,26 @@ type Actor struct {
 	batchSize            int32
 }
 
+func LoggerWithContext(ctx context.Context, logger *slog.Logger) context.Context {
+	return context.WithValue(ctx, LoggerContextKey{}, logger)
+}
+func LoggerFromContext(ctx context.Context) *slog.Logger {
+	logger, ok := ctx.Value(LoggerContextKey{}).(*slog.Logger)
+	if !ok {
+		return slog.Default()
+	}
+	return logger
+}
+func ClientWithContext(ctx context.Context, client API) context.Context {
+	return context.WithValue(ctx, ClientContextKey{}, client)
+}
+func ClientFromContext(ctx context.Context) API {
+	api, ok := ctx.Value(ClientContextKey{}).(API)
+	if !ok {
+		return nil
+	}
+	return api
+}
 func (a *Actor) Work(ctx context.Context) error {
 	reservation := a.mc.CurrentReservation()
 	if reservation == nil {
@@ -45,9 +65,9 @@ func (a *Actor) Work(ctx context.Context) error {
 				a.logger.Error("error fetching record(s)", "error", err, "batch_size", a.batchSize)
 				return err
 			}
-			if records == nil {
-				a.logger.Debug("record is nil")
-				time.Sleep(1 * time.Second)
+			if records == nil || len(records) < 1 {
+				a.logger.Warn("records is empty. sleeping for 30 seconds")
+				time.Sleep(30 * time.Second)
 				continue
 			}
 			for _, record := range records {
@@ -57,15 +77,18 @@ func (a *Actor) Work(ctx context.Context) error {
 				}
 				a.logger.Debug("processing record", "record", record)
 
-				ctxWithClient := context.WithValue(ctx, ClientContextKey{}, a.mc)
-				ctxWithLogger := context.WithValue(ctxWithClient, LoggerContextKey{}, a.logger)
-				if err := a.processor(ctxWithLogger, record); err != nil {
+				cx := LoggerWithContext(ctx, a.logger)
+				cx = ClientWithContext(cx, a.mc)
+				// ctxWithLogger := context.WithValue(ctxWithClient, LoggerContextKey{}, a.logger)
+				if err := a.processor(cx, record); err != nil {
+					a.mc.ClearIterator()
 					a.logger.Error("error processing record", "error", err, "processor", a.processor)
 					return err
 				}
 				a.logger.Debug("commiting record")
 				if err := a.mc.CommitRecord(ctx, record); err != nil {
 					a.logger.Error("error commiting record", "error", err)
+					a.mc.ClearIterator()
 					return err
 				}
 			}
@@ -144,13 +167,13 @@ func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 			for _, shard := range shards {
 				if m.currentActorCount < m.config.MaxActorCount {
 					// add more actors
-					m.logger.Info("adding actor", "current_count", m.currentActorCount, "current_workers", m.workerIDs)
+					m.logger.Info("adding actor", "current_count", m.currentActorCount, "current_workers", m.workerIDs, "prefix", m.config.WorkerPrefix)
 					m.actorCountMutex.Lock()
 					index := m.currentActorCount
 					m.actorCountMutex.Unlock()
 					m.actors.Go(func() error {
 						workerID := fmt.Sprintf("%s.%d", m.config.WorkerPrefix, index)
-						m.logger.Info("setting up actor inside error group", "index", index)
+						m.logger.Info("setting up actor inside error group", "index", index, "worker_id", workerID)
 						logger := m.config.Logger.With("service", "actor")
 						cfg := NewConfig(
 							WithLogger(logger),
