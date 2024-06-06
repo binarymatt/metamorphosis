@@ -160,3 +160,7 @@ func (c *Config) Validate() error {
 	}
 	return nil
 }
+
+func (c *Config) GroupKey() string {
+	return fmt.Sprintf("%s-%s", c.StreamARN, c.GroupID)
+}

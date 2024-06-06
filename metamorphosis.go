@@ -4,8 +4,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	ktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 
 	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
@@ -20,6 +18,8 @@ type API interface {
 	CurrentReservation() *Reservation
 	ListReservations(ctx context.Context) ([]Reservation, error)
 	IsReserved(reservations []Reservation, shard ktypes.Shard) bool
+	IsShardClosed(context.Context) (bool, error)
+	CloseShard(context.Context) error
 	ClearIterator()
 }
 type Client struct {
@@ -50,6 +50,7 @@ func (c *Client) Init(ctx context.Context) error {
 	return nil
 }
 
+/*
 func (m *Client) retrieveRandomShardID(ctx context.Context) (string, error) {
 	// Get existing reservations
 	reservations, err := m.ListReservations(ctx)
@@ -83,12 +84,15 @@ func (m *Client) retrieveRandomShardID(ctx context.Context) (string, error) {
 
 	return "", ErrAllShardsReserved
 }
+*/
+
 func (m *Client) CurrentReservation() *Reservation {
 	return m.reservation
 }
+
 func (m *Client) IsReserved(reservations []Reservation, shard ktypes.Shard) bool {
 	for _, reservation := range reservations {
-		if reservation.ShardID == *shard.ShardId {
+		if reservation.ShardID == *shard.ShardId || reservation.LatestSequence == ShardClosed {
 			slog.Debug("shard is reserved", "shard", *shard.ShardId)
 			return true
 		}

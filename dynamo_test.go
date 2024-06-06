@@ -24,6 +24,7 @@ func TestListReservations(t *testing.T) {
 	m := NewClient(NewConfig(
 		WithReservationTableName("metamorphosis_reservations"),
 		WithDynamoClient(dc),
+		WithStreamArn("arn"),
 		WithGroup("testGroup")))
 
 	must.True(t, t.Run("happy path", func(t *testing.T) {
@@ -38,7 +39,7 @@ func TestListReservations(t *testing.T) {
 					Value: fmt.Sprintf("%d", n.Unix()),
 				},
 				":1": &types.AttributeValueMemberS{
-					Value: "testGroup",
+					Value: "arn-testGroup",
 				},
 			},
 			KeyConditionExpression: aws.String("#1 = :1"),
@@ -102,7 +103,7 @@ func TestCommitRecord(t *testing.T) {
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: "arn-group"},
 			ShardIDKey: &types.AttributeValueMemberS{Value: config.ShardID},
 		},
 		ConditionExpression: aws.String("#0 = :0"),

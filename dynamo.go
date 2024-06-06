@@ -20,6 +20,7 @@ const (
 	WorkerIDKey       = "workerID"
 	ExpiresAtKey      = "expiresAt"
 	LatestSequenceKey = "latestSequence"
+	StreamArnKey      = "streamArn"
 )
 
 var (
@@ -59,7 +60,7 @@ type DynamoDBAPI interface {
 func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
 	m.logger.Info("listing reservations")
 	client := m.config.DynamoClient
-	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(m.config.GroupID))
+	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(m.config.GroupKey()))
 
 	now := Now()
 	filter := expression.Name(ExpiresAtKey).GreaterThan(expression.Value(now.Unix()))
@@ -91,9 +92,46 @@ func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
 	}
 	return reservations, err
 }
+
+func (c *Client) CloseShard(ctx context.Context) error {
+	client := c.config.DynamoClient
+	logger := c.logger.With("shard", c.config.ShardID, "worker", c.config.WorkerID, "group", c.config.GroupID, "stream", c.config.StreamARN)
+	logger.Info("closing shard")
+
+	update := expression.Set(expression.Name(LatestSequenceKey), expression.Value(ShardClosed))
+	condition := expression.Name(StreamArnKey).Equal(expression.Value(c.config.StreamARN))
+
+	expr, err := expression.NewBuilder().
+		WithUpdate(update).
+		WithCondition(condition).
+		Build()
+	if err != nil {
+		return err
+	}
+
+	input := &dynamodb.UpdateItemInput{
+		Key: map[string]types.AttributeValue{
+			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupKey()},
+			ShardIDKey: &types.AttributeValueMemberS{Value: c.config.ShardID},
+		},
+		TableName:                 &c.config.ReservationTableName,
+		ConditionExpression:       expr.Condition(),
+		UpdateExpression:          expr.Update(),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		ReturnValues:              types.ReturnValueNone,
+	}
+	_, err = client.UpdateItem(ctx, input)
+	if err != nil {
+		logger.Error("could not mark reservation as closed")
+		return err
+	}
+	return nil
+}
+
 func (c *Client) ReserveShard(ctx context.Context) error {
 	client := c.config.DynamoClient
-	logger := c.logger.With("shard", c.config.ShardID, "timeout", c.config.ReservationTimeout, "worker", c.config.WorkerID, "group", c.config.GroupID)
+	logger := c.logger.With("shard", c.config.ShardID, "timeout", c.config.ReservationTimeout, "worker", c.config.WorkerID, "group", c.config.GroupID, "stream", c.config.StreamARN)
 	logger.Info("starting shard reservation")
 	// 1. Is there an existing reservation for this group/worker, if so use that.
 	// conditional PutItem
@@ -119,7 +157,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 	input := &dynamodb.UpdateItemInput{
 		TableName: &c.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupKey()},
 			ShardIDKey: &types.AttributeValueMemberS{Value: c.config.ShardID},
 		},
 		ConditionExpression:       expr.Condition(),
@@ -145,7 +183,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 		return err
 	}
 	c.reservation = &reservation
-	c.logger = c.logger.With("shard_id", reservation.ShardID)
+	// c.logger = c.logger.With("shard_id", reservation.ShardID)
 	c.logger.Info("reservation made", "expires", expires, "sequence", c.reservation.LatestSequence)
 	return nil
 }
@@ -169,7 +207,7 @@ func (m *Client) ReleaseReservation(ctx context.Context) error {
 	_, err = client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: &m.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupKey()},
 			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
 		},
 		ConditionExpression:       expr.Condition(),
@@ -217,7 +255,7 @@ func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Recor
 
 	input := &dynamodb.UpdateItemInput{
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupKey()},
 			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
 		},
 		TableName:                 &m.config.ReservationTableName,
@@ -257,7 +295,7 @@ func (m *Client) fetchReservation(ctx context.Context) (*Reservation, error) {
 	input := &dynamodb.GetItemInput{
 		TableName: &m.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupKey()},
 			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
 		},
 	}

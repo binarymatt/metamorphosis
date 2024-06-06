@@ -12,6 +12,10 @@ import (
 	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 )
 
+const (
+	ShardClosed = "SHARD_CLOSED"
+)
+
 var (
 	ErrMissingReservation = errors.New("missing reservation")
 	ErrStreamError        = errors.New("stream error")
@@ -24,13 +28,25 @@ type KinesisAPI interface {
 	ListShards(ctx context.Context, params *kinesis.ListShardsInput, optFns ...func(*kinesis.Options)) (*kinesis.ListShardsOutput, error)
 	CreateStream(ctx context.Context, params *kinesis.CreateStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.CreateStreamOutput, error)
 	DeleteStream(ctx context.Context, params *kinesis.DeleteStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DeleteStreamOutput, error)
-	DescribeStream(ctx context.Context, params *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error)
+	// DescribeStream(ctx context.Context, params *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error)
+	DescribeStreamSummary(ctx context.Context, params *kinesis.DescribeStreamSummaryInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamSummaryOutput, error)
 }
 
 type PutRecordsRequest struct {
 	Records    []*metamorphosisv1.Record
 	StreamName *string
 	StreamArn  *string
+}
+
+func (m *Client) IsShardClosed(ctx context.Context) (bool, error) {
+	iterator, err := m.getShardIterator(ctx)
+	if err != nil {
+		return false, err
+	}
+	if iterator == nil {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
@@ -66,7 +82,7 @@ func (m *Client) ClearIterator() {
 	m.nextIterator = nil
 }
 func (m *Client) PutRecords(ctx context.Context, req *PutRecordsRequest) error {
-	m.logger.Info("adding records to stream")
+	m.logger.Debug("adding records to stream")
 	kc := m.config.KinesisClient
 	kinesisRecords := make([]types.PutRecordsRequestEntry, len(req.Records))
 	for i, record := range req.Records {
@@ -118,6 +134,7 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 		return nil, err
 	}
 	if iterator == nil {
+		// TODO mark shard as closed
 		m.logger.Warn("iterator is nil shard might be closed")
 	}
 	input := &kinesis.GetRecordsInput{
@@ -143,6 +160,9 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 	m.logger.Info("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
 	if nextIterator != nil {
 		m.nextIterator = nextIterator
+	} else {
+		// TODO Mark shard as closed.
+		// m.CloseShard(ctx)
 	}
 	return records, nil
 }

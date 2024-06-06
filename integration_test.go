@@ -397,11 +397,11 @@ func (i *IntegrationTestSuite) createStream() {
 	must.NoError(i.T(), err)
 	slog.Info("created stream", "error", err)
 	for j := 0; j < 20; j++ {
-		out, err := i.kc.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamARN: aws.String(streamARN)})
+		out, err := i.kc.DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{StreamARN: aws.String(streamARN)})
 		must.NoError(i.T(), err)
-		slog.Info("getting stream status", "status", out.StreamDescription.StreamStatus, "arn", *out.StreamDescription.StreamARN)
+		slog.Info("getting stream status", "status", out.StreamDescriptionSummary.StreamStatus, "arn", *out.StreamDescriptionSummary.StreamARN)
 
-		if out.StreamDescription.StreamStatus == ktypes.StreamStatusActive {
+		if out.StreamDescriptionSummary.StreamStatus == ktypes.StreamStatusActive {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
