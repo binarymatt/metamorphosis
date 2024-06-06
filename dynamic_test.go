@@ -23,7 +23,7 @@ import (
 
 func TestNew(t *testing.T) {
 	config := testConfig()
-	m := New(context.Background(), config)
+	m := New(config)
 	must.NotNil(t, m)
 	must.Eq(t, m.currentActorCount, 0)
 	must.Eq(t, m.config, config)
@@ -44,7 +44,7 @@ func TestManager_shardStateCached(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
-	m := New(ctx, config)
+	m := New(config)
 	m.cacheLastChecked = time.Now()
 	err := m.shardsState(ctx)
 	must.NoError(t, err)
@@ -55,7 +55,7 @@ func TestManager_shardStateRefresh(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
-	m := New(ctx, config)
+	m := New(config)
 	m.cacheLastChecked = time.Now().Add(-1 * time.Hour)
 
 	kc.EXPECT().DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
@@ -86,7 +86,7 @@ func TestManager_shardStateKinesisError(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
-	m := New(ctx, config)
+	m := New(config)
 	m.cacheLastChecked = time.Now().Add(-1 * time.Hour)
 
 	oops := errors.New("oops")
@@ -108,7 +108,7 @@ func TestManager_LoopNoShards(t *testing.T) {
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc))
 	config.ManagerLoopWaitTime = 100 * time.Millisecond
-	m := New(context.Background(), config)
+	m := New(config)
 	m.internalClient = NewClient(config)
 	kc.EXPECT().DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
 		StreamARN: aws.String("arn"),
@@ -164,7 +164,7 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	config.RecordProcessor = func(ctx context.Context, record *metamorphosisv1.Record) error {
 		return nil
 	}
-	m := New(context.Background(), config)
+	m := New(config)
 	m.internalClient = NewClient(config)
 
 	// mock get available shards

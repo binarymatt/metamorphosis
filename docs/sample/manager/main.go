@@ -19,7 +19,7 @@ func main() {
 		metamorphosis.WithRecordProcessor(processor),
 		metamorphosis.WithStreamArn("arn:aws:kinesis:us-east-1:000000000000:stream/metamorphosis_stream"),
 	)
-	manager := metamorphosis.New(context.Background(), cfg)
+	manager := metamorphosis.New(cfg)
 	if err := manager.Start(context.Background()); err != nil {
 		panic(err)
 	}
