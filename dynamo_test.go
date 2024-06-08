@@ -15,7 +15,7 @@ import (
 	"github.com/binarymatt/metamorphosis/mocks"
 )
 
-func TestListReservations(t *testing.T) {
+func TestListUnexpiredReservations(t *testing.T) {
 	n := time.Now()
 	Now = func() time.Time {
 		return n
@@ -66,7 +66,7 @@ func TestListReservations(t *testing.T) {
 					},
 				},
 			}, nil).Once()
-		reservations, err := m.ListReservations(context.Background())
+		reservations, err := m.ListUnexpiredReservations(context.Background())
 		must.NoError(t, err)
 		expectedReservations := []Reservation{
 			{

@@ -3,6 +3,7 @@ package metamorphosis
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -38,8 +39,8 @@ type PutRecordsRequest struct {
 	StreamArn  *string
 }
 
-func (m *Client) IsShardClosed(ctx context.Context) (bool, error) {
-	iterator, err := m.getShardIterator(ctx)
+func (c *Client) IsIteratorClosed(ctx context.Context) (bool, error) {
+	iterator, err := c.getShardIterator(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -59,6 +60,7 @@ func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 		StreamARN: &m.config.StreamARN,
 		ShardId:   &m.config.ShardID,
 	}
+
 	if m.reservation.LatestSequence != "" {
 		input.ShardIteratorType = types.ShardIteratorTypeAfterSequenceNumber
 		input.StartingSequenceNumber = &m.reservation.LatestSequence
@@ -66,14 +68,17 @@ func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 		input.ShardIteratorType = types.ShardIteratorTypeTrimHorizon
 	}
 	m.logger.Debug("shard iterator input", "input", *input)
-	if m.nextIterator == nil {
-		m.logger.Warn("getting iterator from api")
+	if m.nextIterator != nil && *m.nextIterator == "" {
+		m.logger.Debug("getting iterator from kinesis API endpoiont", "shard", m.config.ShardID)
 		out, err := kc.GetShardIterator(ctx, input)
 		if err != nil {
 			m.logger.Error("error getting shard iterator", "error", err)
 			return nil, err
 		}
+		m.logger.Debug("iterator result", "iterator", *out.ShardIterator, "last_sequence", m.reservation.LatestSequence, "shard", m.config.ShardID)
 		m.nextIterator = out.ShardIterator
+	} else {
+		m.logger.Debug("getting cached iterator", "shard", m.config.ShardID)
 	}
 	return m.nextIterator, nil
 }
@@ -117,11 +122,11 @@ func (m *Client) FetchRecord(ctx context.Context) (*metamorphosisv1.Record, erro
 	return nil, nil
 }
 
-func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv1.Record, error) {
+func (m *Client) FetchRecords(ctx context.Context, maxRecords int32) ([]*metamorphosisv1.Record, error) {
 	kc := m.config.KinesisClient
 	if m.reservation == nil {
-		m.logger.Error("reservation not present")
-		r, err := m.fetchReservation(ctx)
+		m.logger.Error("local reservation not present", "shard", m.config.ShardID, "group", m.config.GroupKey())
+		r, err := m.fetchClientReservation(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -136,11 +141,13 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 	if iterator == nil {
 		// TODO mark shard as closed
 		m.logger.Warn("iterator is nil shard might be closed")
+	} else {
+		m.logger.Debug("iterator state", "iterator", *iterator)
 	}
 	input := &kinesis.GetRecordsInput{
 		ShardIterator: iterator,
 		StreamARN:     &m.config.StreamARN,
-		Limit:         &max,
+		Limit:         &maxRecords,
 	}
 	output, err := kc.GetRecords(ctx, input)
 	if err != nil {
@@ -157,13 +164,12 @@ func (m *Client) FetchRecords(ctx context.Context, max int32) ([]*metamorphosisv
 		}
 		records[i] = r
 	}
-	m.logger.Info("records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
-	if nextIterator != nil {
-		m.nextIterator = nextIterator
-	} else {
-		// TODO Mark shard as closed.
-		// m.CloseShard(ctx)
+	level := slog.LevelInfo
+	if len(records) != int(maxRecords) {
+		level = slog.LevelWarn
 	}
+	m.logger.Log(ctx, level, "records fetched from stream", "stream", m.config.StreamARN, "shard", m.reservation.ShardID, "records", len(records))
+	m.nextIterator = nextIterator
 	return records, nil
 }
 func (m *Client) translateRecord(kinesisRecord types.Record) (*metamorphosisv1.Record, error) {

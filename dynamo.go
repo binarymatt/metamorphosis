@@ -57,7 +57,7 @@ type DynamoDBAPI interface {
 	DeleteTable(ctx context.Context, params *dynamodb.DeleteTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteTableOutput, error)
 }
 
-func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
+func (m *Client) ListUnexpiredReservations(ctx context.Context) ([]Reservation, error) {
 	m.logger.Info("listing reservations")
 	client := m.config.DynamoClient
 	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(m.config.GroupKey()))
@@ -99,11 +99,10 @@ func (c *Client) CloseShard(ctx context.Context) error {
 	logger.Info("closing shard")
 
 	update := expression.Set(expression.Name(LatestSequenceKey), expression.Value(ShardClosed))
-	condition := expression.Name(StreamArnKey).Equal(expression.Value(c.config.StreamARN))
+	// condition := expression.Name(StreamArnKey).Equal(expression.Value(c.config.StreamARN))
 
 	expr, err := expression.NewBuilder().
 		WithUpdate(update).
-		WithCondition(condition).
 		Build()
 	if err != nil {
 		return err
@@ -132,7 +131,7 @@ func (c *Client) CloseShard(ctx context.Context) error {
 func (c *Client) ReserveShard(ctx context.Context) error {
 	client := c.config.DynamoClient
 	logger := c.logger.With("shard", c.config.ShardID, "timeout", c.config.ReservationTimeout, "worker", c.config.WorkerID, "group", c.config.GroupID, "stream", c.config.StreamARN)
-	logger.Info("starting shard reservation")
+	logger.Debug("starting shard reservation")
 	// 1. Is there an existing reservation for this group/worker, if so use that.
 	// conditional PutItem
 	now := Now()
@@ -184,7 +183,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 	}
 	c.reservation = &reservation
 	// c.logger = c.logger.With("shard_id", reservation.ShardID)
-	c.logger.Info("reservation made", "expires", expires, "sequence", c.reservation.LatestSequence)
+	c.logger.Debug("reservation made", "expires", expires, "sequence", c.reservation.LatestSequence)
 	return nil
 }
 
@@ -287,16 +286,18 @@ func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Recor
 	m.reservation = &reservation
 	return nil
 }
-
-func (m *Client) fetchReservation(ctx context.Context) (*Reservation, error) {
+func (c *Client) fetchClientReservation(ctx context.Context) (*Reservation, error) {
+	return c.fetchReservation(ctx, c.config.ShardID)
+}
+func (m *Client) fetchReservation(ctx context.Context, shardID string) (*Reservation, error) {
 	client := m.config.DynamoClient
 
-	m.logger.Info("fetching reservation", "group", m.config.GroupID, "shard", m.config.ShardID, "table", m.config.ReservationTableName)
+	m.logger.Debug("fetching reservation", "group", m.config.GroupID, "shard", shardID, "table", m.config.ReservationTableName)
 	input := &dynamodb.GetItemInput{
 		TableName: &m.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
 			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupKey()},
-			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
+			ShardIDKey: &types.AttributeValueMemberS{Value: shardID},
 		},
 	}
 	out, err := client.GetItem(ctx, input)
@@ -304,7 +305,7 @@ func (m *Client) fetchReservation(ctx context.Context) (*Reservation, error) {
 		m.logger.Error("error getting item", "error", err)
 		return nil, err
 	}
-	m.logger.Info("retrieved reservation", "item", out.Item)
+	m.logger.Debug("retrieved reservation", "item", out.Item)
 	if out.Item == nil {
 		m.logger.Error("no reservation retrieved")
 		return nil, ErrNotFound

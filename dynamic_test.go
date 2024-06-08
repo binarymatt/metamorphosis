@@ -70,12 +70,12 @@ func TestManager_shardStateRefresh(t *testing.T) {
 	}).Return(&kinesis.ListShardsOutput{
 		Shards: []types.Shard{{ShardId: aws.String("shard1")}},
 	}, nil)
-	must.Eq(t, map[string]types.Shard{}, m.cachedShards)
+	must.Eq(t, map[string]ShardState{}, m.cachedShards)
 	err := m.shardsState(ctx)
 	must.NoError(t, err)
-	expectedShardState := map[string]types.Shard{
-		"shard1": {
-			ShardId: aws.String("shard1"),
+	expectedShardState := map[string]ShardState{
+		"shard1": ShardState{
+			Shard: types.Shard{ShardId: aws.String("shard1")},
 		},
 	}
 	must.Eq(t, expectedShardState, m.cachedShards)
@@ -93,7 +93,7 @@ func TestManager_shardStateKinesisError(t *testing.T) {
 	kc.EXPECT().DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
 		StreamARN: aws.String("arn"),
 	}).Return(&kinesis.DescribeStreamSummaryOutput{}, oops)
-	must.Eq(t, map[string]types.Shard{}, m.cachedShards)
+	must.Eq(t, map[string]ShardState{}, m.cachedShards)
 	err := m.shardsState(ctx)
 	must.ErrorIs(t, err, oops)
 }
