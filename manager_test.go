@@ -29,16 +29,6 @@ func TestNew(t *testing.T) {
 	must.Eq(t, m.config, config)
 }
 
-func TestActorWork_NoReservation(t *testing.T) {
-	config := testConfig()
-	cl := NewClient(config)
-	a := Actor{
-		id: "test",
-		mc: cl,
-	}
-	err := a.Work(context.Background())
-	must.ErrorIs(t, err, ErrMissingReservation)
-}
 func TestManager_shardStateCached(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
@@ -65,16 +55,27 @@ func TestManager_shardStateRefresh(t *testing.T) {
 			StreamStatus: types.StreamStatusActive,
 		},
 	}, nil)
+
 	kc.EXPECT().ListShards(ctx, &kinesis.ListShardsInput{
 		StreamARN: aws.String("arn"),
 	}).Return(&kinesis.ListShardsOutput{
 		Shards: []types.Shard{{ShardId: aws.String("shard1")}},
 	}, nil)
+
+	dc.EXPECT().Query(ctx, &dynamodb.QueryInput{
+		TableName:                aws.String("table"),
+		KeyConditionExpression:   aws.String("#0 = :0"),
+		ExpressionAttributeNames: map[string]string{"#0": "groupID"},
+		ExpressionAttributeValues: map[string]dtypes.AttributeValue{
+			":0": &dtypes.AttributeValueMemberS{Value: "arn-group"},
+		},
+	}).Return(&dynamodb.QueryOutput{}, nil)
+
 	must.Eq(t, map[string]ShardState{}, m.cachedShards)
 	err := m.shardsState(ctx)
 	must.NoError(t, err)
 	expectedShardState := map[string]ShardState{
-		"shard1": ShardState{
+		"shard1": {
 			Shard: types.Shard{ShardId: aws.String("shard1")},
 		},
 	}
@@ -97,6 +98,7 @@ func TestManager_shardStateKinesisError(t *testing.T) {
 	err := m.shardsState(ctx)
 	must.ErrorIs(t, err, oops)
 }
+
 func TestManager_LoopNoShards(t *testing.T) {
 	n := time.Now()
 	Now = func() time.Time {
@@ -117,22 +119,17 @@ func TestManager_LoopNoShards(t *testing.T) {
 			StreamDescriptionSummary: &types.StreamDescriptionSummary{},
 		}, nil)
 	kc.EXPECT().ListShards(ctx, &kinesis.ListShardsInput{StreamARN: aws.String("arn")}).Return(&kinesis.ListShardsOutput{}, nil)
-	dc.EXPECT().Query(ctx, &dynamodb.QueryInput{
+	dc.EXPECT().Query(mock.AnythingOfType("*context.cancelCtx"), &dynamodb.QueryInput{
 		TableName: aws.String("table"),
 		ExpressionAttributeNames: map[string]string{
-			"#0": "expiresAt",
-			"#1": "groupID",
+			"#0": "groupID",
 		},
 		ExpressionAttributeValues: map[string]dtypes.AttributeValue{
-			":0": &dtypes.AttributeValueMemberN{
-				Value: fmt.Sprintf("%d", n.Unix()),
-			},
-			":1": &dtypes.AttributeValueMemberS{
+			":0": &dtypes.AttributeValueMemberS{
 				Value: "arn-group",
 			},
 		},
-		KeyConditionExpression: aws.String("#1 = :1"),
-		FilterExpression:       aws.String("#0 > :0"),
+		KeyConditionExpression: aws.String("#0 = :0"),
 	}).
 		Return(&dynamodb.QueryOutput{}, nil)
 	eg.Go(func() error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -56,6 +57,12 @@ func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 	if m.reservation == nil {
 		return nil, ErrMissingReservation
 	}
+	now := Now()
+	expiredCache := false
+	if now.After(m.iteratorCacheExpires) {
+		m.logger.Warn("iterator cache time is up", "cacheExpires", m.iteratorCacheExpires, "now", now)
+		expiredCache = true
+	}
 	input := &kinesis.GetShardIteratorInput{
 		StreamARN: &m.config.StreamARN,
 		ShardId:   &m.config.ShardID,
@@ -68,8 +75,8 @@ func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 		input.ShardIteratorType = types.ShardIteratorTypeTrimHorizon
 	}
 	m.logger.Debug("shard iterator input", "input", *input)
-	if m.nextIterator != nil && *m.nextIterator == "" {
-		m.logger.Debug("getting iterator from kinesis API endpoiont", "shard", m.config.ShardID)
+	if (m.nextIterator != nil && *m.nextIterator == "") || expiredCache {
+		m.logger.Info("getting iterator from kinesis API endpoiont", "shard", m.config.ShardID)
 		out, err := kc.GetShardIterator(ctx, input)
 		if err != nil {
 			m.logger.Error("error getting shard iterator", "error", err)
@@ -77,8 +84,9 @@ func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
 		}
 		m.logger.Debug("iterator result", "iterator", *out.ShardIterator, "last_sequence", m.reservation.LatestSequence, "shard", m.config.ShardID)
 		m.nextIterator = out.ShardIterator
+		m.iteratorCacheExpires = Now().Add(2 * time.Minute)
 	} else {
-		m.logger.Debug("getting cached iterator", "shard", m.config.ShardID)
+		m.logger.Warn("getting cached iterator", "shard", m.config.ShardID)
 	}
 	return m.nextIterator, nil
 }

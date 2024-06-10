@@ -5,153 +5,33 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"golang.org/x/sync/errgroup"
-
-	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 )
 
 var (
 	ErrStreamNotAvailable = errors.New("stream status is either creating or deleting")
 )
 
-type ClientContextKey struct{}
-type LoggerContextKey struct{}
-type RecordProcessor = func(context.Context, *metamorphosisv1.Record) error
+func New(config *Config) *Manager {
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 
-type Actor struct {
-	id                   string
-	mc                   *Client
-	processor            RecordProcessor
-	logger               *slog.Logger
-	SleepAfterProcessing time.Duration
-	batchSize            int32
-	shard                types.Shard
-}
-
-func LoggerWithContext(ctx context.Context, logger *slog.Logger) context.Context {
-	return context.WithValue(ctx, LoggerContextKey{}, logger)
-}
-func LoggerFromContext(ctx context.Context) *slog.Logger {
-	logger, ok := ctx.Value(LoggerContextKey{}).(*slog.Logger)
-	if !ok {
-		return slog.Default()
+	m := &Manager{
+		currentActorCount: 0,
+		config:            config,
+		logger:            logger.With("service", "manager"),
+		cachedShards:      map[string]ShardState{},
+		internalClient:    NewClient(config),
 	}
-	return logger
-}
-func ClientWithContext(ctx context.Context, client *Client) context.Context {
-	return context.WithValue(ctx, ClientContextKey{}, client)
-}
-func ClientFromContext(ctx context.Context) *Client {
-	api, ok := ctx.Value(ClientContextKey{}).(*Client)
-	if !ok {
-		return nil
-	}
-	return api
-}
-func (a *Actor) WaitForParent(ctx context.Context) error {
-	// check reservation table to see if it's closed
-	if a.shard.ParentShardId == nil {
-		return nil
-	}
-	if len(*a.shard.ParentShardId) == 0 {
-		return nil
-	}
-	for {
-		a.logger.Debug("waiting on parent to finish", "parent_shard", *a.shard.ParentShardId)
-		res, err := a.mc.fetchReservation(ctx, *a.shard.ParentShardId)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		if errors.Is(err, ErrNotFound) {
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		if res.LatestSequence == ShardClosed {
-			return nil
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-}
-func (a *Actor) Work(ctx context.Context) error {
-	reservation := a.mc.CurrentReservation()
-	if reservation == nil {
-		return ErrMissingReservation
-	}
-	//TODO wait on parent
-	a.logger = a.logger.With("shard_id", reservation.ShardID, "worker_id", reservation.WorkerID, "group_id", reservation.GroupID)
-	if err := a.WaitForParent(ctx); err != nil {
-		a.logger.Error("error waiting on parent shard to finish", "error", err)
-		return err
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			// see if shard is still active
-			a.logger.Debug("checking if shard closed")
-			if closed, err := a.mc.IsIteratorClosed(ctx); err != nil || closed {
-				a.logger.Debug("shard is closed or error checking")
-				if err != nil {
-					a.logger.Error("error checking shard", "error", err)
-					continue
-				}
-				a.logger.Warn("closing shard")
-				if err := a.mc.CloseShard(ctx); err != nil {
-					a.logger.Error("could not close shard", "error", err)
-					return err
-				}
-				a.logger.Warn("shard is closed")
-				// Exit out to let other actors spin up if new shars are ready
-				return nil
-
-			}
-
-			a.logger.Debug("fetching record")
-			records, err := a.mc.FetchRecords(ctx, a.batchSize)
-			if err != nil {
-				a.logger.Error("error fetching record(s)", "error", err, "batch_size", a.batchSize)
-				return err
-			}
-			if records == nil || len(records) < 1 {
-				a.logger.Warn("records is empty. sleeping for 30 seconds")
-				time.Sleep(5 * time.Second)
-				continue
-			}
-			for _, record := range records {
-				if record == nil {
-					a.logger.Debug("record is nil")
-					continue
-				}
-				a.logger.Debug("processing record", "record", record)
-
-				cx := LoggerWithContext(ctx, a.logger)
-				cx = ClientWithContext(cx, a.mc)
-				// ctxWithLogger := context.WithValue(ctxWithClient, LoggerContextKey{}, a.logger)
-				if err := a.processor(cx, record); err != nil {
-					a.mc.ClearIterator()
-					a.logger.Error("error processing record", "error", err, "processor", a.processor)
-					return err
-				}
-				a.logger.Debug("commiting record")
-				if err := a.mc.CommitRecord(ctx, record); err != nil {
-					a.logger.Error("error commiting record", "error", err)
-					a.mc.ClearIterator()
-					return err
-				}
-			}
-			a.logger.Debug("checking sleep", "sleep_time", a.SleepAfterProcessing)
-			if a.SleepAfterProcessing != 0 {
-				a.logger.Warn("sleeping after processing", "duration", a.SleepAfterProcessing)
-				time.Sleep(a.SleepAfterProcessing)
-			}
-		}
-	}
+	return m
 }
 
 type Manager struct {
@@ -172,20 +52,10 @@ type Manager struct {
 	cachedShards     map[string]ShardState
 }
 
-func New(config *Config) *Manager {
-	return &Manager{
-		currentActorCount: 0,
-		config:            config,
-		logger:            config.Logger.With("service", "manager"),
-		cachedShards:      map[string]ShardState{},
-	}
-}
-
 func (m *Manager) Start(ctx context.Context) error {
 	if m.logger == nil {
 		m.logger = slog.Default()
 	}
-	m.internalClient = NewClient(m.config)
 	m.actors, m.ctx = errgroup.WithContext(ctx)
 	m.actors.Go(func() error {
 		if err := m.RefreshActorLoop(m.ctx); err != nil {
@@ -195,6 +65,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	})
 	return m.actors.Wait()
 }
+
 func (m *Manager) RefreshActors(ctx context.Context) error {
 	slog.Warn("refreshing actors")
 	shards, err := m.GetAvailableShards(ctx)
@@ -214,7 +85,7 @@ func (m *Manager) RefreshActors(ctx context.Context) error {
 	for _, shard := range shards {
 		if m.currentActorCount < m.config.MaxActorCount {
 			// add more actors
-			m.logger.Info("adding actor", "current_count", m.currentActorCount, "prefix", m.config.WorkerPrefix)
+			m.logger.Info("adding actor", "current_count", m.currentActorCount, "prefix", m.config.WorkerPrefix, "shard", *shard.ShardId)
 			m.actorCountMutex.Lock()
 			index := m.provisionedActors
 			m.actors.Go(func() error {
@@ -287,6 +158,7 @@ func (m *Manager) RefreshActors(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (m *Manager) RefreshActorLoop(ctx context.Context) error {
 	if err := m.RefreshActors(ctx); err != nil {
 		slog.Error("error refreshing actors", "error", err)
@@ -317,35 +189,30 @@ func (m *Manager) DecrementActorCount() {
 	m.actorCountMutex.Unlock()
 }
 
-func (m *Manager) AddActorID(id string)    {}
-func (m *Manager) RemoveActorID(id string) {}
-
 func (m *Manager) GetAvailableShards(ctx context.Context) ([]types.Shard, error) {
 	m.logger.Info("checking for available shards", "current_actors", m.currentActorCount, "max_actors", m.config.MaxActorCount)
-	// List Shards
+	now := Now()
 	if err := m.shardsState(ctx); err != nil {
 		m.logger.Error("error with stream/shards state", "error", err)
 		return nil, err
 	}
-
-	// get current reservations (reservations that aren't expired)
-	reservations, err := m.internalClient.ListUnexpiredReservations(ctx)
-	if err != nil {
-		return nil, err
-	}
 	availableShards := []types.Shard{}
-	// Find first unreserved shard
-	for _, shardState := range m.cachedShards {
-		shard := shardState.Shard
-		reserved := m.internalClient.IsReserved(reservations, shard)
-		closed, err := m.internalClient.IsShardClosed(ctx, *shard.ShardId)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			m.logger.Error("could not check if shard is closed due to error", "error", err, "shard", *shard.ShardId)
+	keys := make([]string, 0, len(m.cachedShards))
+	for k := range m.cachedShards {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		state := m.cachedShards[k]
+
+		if state.Reservation != nil && state.Reservation.LatestSequence == ShardClosed {
 			continue
 		}
-		if !reserved && !closed {
-			m.logger.Debug("shard is available", "shard", *shard.ShardId)
-			availableShards = append(availableShards, shard)
+		if state.Reservation != nil && state.Reservation.Expires().Before(now) {
+			availableShards = append(availableShards, state.Shard)
+		}
+		if state.Reservation == nil {
+			availableShards = append(availableShards, state.Shard)
 		}
 	}
 	return availableShards, nil
@@ -372,7 +239,6 @@ func (m *Manager) shardsState(ctx context.Context) error {
 	}
 
 	status := out.StreamDescriptionSummary.StreamStatus
-	//m.logger.Warn("stream status", "shard_count", len(out.StreamDescription.Shards), "status", out.StreamDescription.StreamStatus)
 	if status == types.StreamStatusCreating || status == types.StreamStatusDeleting {
 		return ErrStreamNotAvailable
 	}
@@ -380,8 +246,18 @@ func (m *Manager) shardsState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	lookup, err := m.internalClient.ReservationLookUp(ctx)
+	if err != nil {
+		m.logger.Error("could not build reservation lookup table, is empty")
+	}
 	for _, shard := range shards {
-		m.cachedShards[*shard.ShardId] = ShardState{Shard: shard}
+		state := ShardState{Shard: shard}
+		res, ok := lookup[*shard.ShardId]
+		if ok {
+			state.Reservation = res
+		}
+		m.cachedShards[*shard.ShardId] = state
 		//m.logger.Warn("shard status", "id", *shard.ShardId, "parent", *shard.ParentShardId, "has_more_shard", *out.StreamDescription.HasMoreShards)
 	}
 	m.logger.Info("cached shard state", "count", len(m.cachedShards), "current_actors", m.currentActorCount)
@@ -397,8 +273,4 @@ func (m *Manager) getShards(ctx context.Context) ([]types.Shard, error) {
 		return nil, err
 	}
 	return out.Shards, nil
-}
-
-func (m *Manager) Shutdown(ctx context.Context) error {
-	return nil
 }

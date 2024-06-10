@@ -57,6 +57,42 @@ type DynamoDBAPI interface {
 	DeleteTable(ctx context.Context, params *dynamodb.DeleteTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteTableOutput, error)
 }
 
+func (c *Client) ListAllReservations(ctx context.Context) ([]Reservation, error) {
+	c.logger.Info("listing all reservations")
+	client := c.config.DynamoClient
+	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(c.config.GroupKey()))
+
+	expr, err := expression.NewBuilder().
+		WithKeyCondition(keyCondition).
+		Build()
+
+	if err != nil {
+		return nil, err
+	}
+
+	input := &dynamodb.QueryInput{
+		TableName:                 aws.String(c.config.ReservationTableName),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		KeyConditionExpression:    expr.KeyCondition(),
+		FilterExpression:          expr.Filter(),
+	}
+	p := dynamodb.NewQueryPaginator(client, input)
+	var reservations []Reservation
+	for p.HasMorePages() {
+		out, err := p.NextPage(ctx)
+		if err != nil {
+			c.logger.Error("error getting existing reservations")
+			return nil, err
+		}
+		var pReservations []Reservation
+		if err := attributevalue.UnmarshalListOfMaps(out.Items, &pReservations); err != nil {
+			return nil, err
+		}
+		reservations = append(reservations, pReservations...)
+	}
+	return reservations, err
+}
 func (m *Client) ListUnexpiredReservations(ctx context.Context) ([]Reservation, error) {
 	m.logger.Info("listing reservations")
 	client := m.config.DynamoClient
@@ -307,7 +343,7 @@ func (m *Client) fetchReservation(ctx context.Context, shardID string) (*Reserva
 	}
 	m.logger.Debug("retrieved reservation", "item", out.Item)
 	if out.Item == nil {
-		m.logger.Error("no reservation retrieved")
+		// m.logger.Error("no reservation retrieved", "shard", shardID)
 		return nil, ErrNotFound
 	}
 	var reservation Reservation

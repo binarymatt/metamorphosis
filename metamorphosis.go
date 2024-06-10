@@ -3,6 +3,7 @@ package metamorphosis
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
@@ -25,17 +26,19 @@ type API interface {
 }
 type Client struct {
 	// internal fields
-	config       *Config
-	reservation  *Reservation
-	logger       *slog.Logger
-	nextIterator *string
+	config               *Config
+	reservation          *Reservation
+	logger               *slog.Logger
+	nextIterator         *string
+	iteratorCacheExpires time.Time
 }
 
 func NewClient(config *Config) *Client {
 	return &Client{
-		config:       config,
-		logger:       config.Logger.With("seed", config.Seed, "worker", config.WorkerID, "group", config.GroupID),
-		nextIterator: aws.String(""),
+		config:               config,
+		logger:               config.Logger.With("seed", config.Seed, "worker", config.WorkerID, "group", config.GroupID),
+		nextIterator:         aws.String(""),
+		iteratorCacheExpires: Now(),
 	}
 }
 func (c *Client) Init(ctx context.Context) error {
@@ -115,3 +118,18 @@ func (m *Client) IsReserved(reservations []Reservation, shard ktypes.Shard) bool
 	m.logger.Debug("shard is not reserved", "shard", *shard.ShardId)
 	return false
 }
+
+func (c *Client) ReservationLookUp(ctx context.Context) (map[string]*Reservation, error) {
+	lookup := map[string]*Reservation{}
+	reservations, err := c.ListAllReservations(ctx)
+	if err != nil {
+		return lookup, err
+	}
+	for _, res := range reservations {
+		lookup[res.ShardID] = &res
+	}
+	return lookup, nil
+}
+
+// Get all Reservations
+// Map reservations to shards
