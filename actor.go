@@ -24,6 +24,23 @@ type Actor struct {
 	shard                types.Shard
 }
 
+func NewActor(shard types.Shard, cfg *Config, client *Client) *Actor {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	actor := &Actor{
+		id:                   cfg.WorkerID,
+		mc:                   client,
+		logger:               logger.With("worker", cfg.WorkerID),
+		processor:            cfg.RecordProcessor,
+		SleepAfterProcessing: cfg.SleepAfterProcessing,
+		batchSize:            cfg.BatchSize,
+		shard:                shard,
+	}
+	return actor
+}
+
 func (a *Actor) WaitForParent(ctx context.Context) error {
 	// check reservation table to see if it's closed
 	if a.shard.ParentShardId == nil {
@@ -32,9 +49,9 @@ func (a *Actor) WaitForParent(ctx context.Context) error {
 	if len(*a.shard.ParentShardId) == 0 {
 		return nil
 	}
-	counter := 0
+	expires := Now().Add(30 * time.Second)
 	for {
-		if counter == 150 {
+		if time.Now().After(expires) {
 			return ErrWaitTimePassed
 		}
 		a.logger.Debug("waiting on parent to finish", "parent_shard", *a.shard.ParentShardId)
@@ -100,30 +117,11 @@ func (a *Actor) Work(ctx context.Context) error {
 			}
 			if records == nil || len(records) < 1 {
 				a.logger.Warn("records is empty. sleeping for 5 seconds")
-				time.Sleep(5 * time.Second)
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
-			for _, record := range records {
-				if record == nil {
-					a.logger.Debug("record is nil")
-					continue
-				}
-				a.logger.Debug("processing record", "record", record)
-
-				cx := LoggerWithContext(ctx, a.logger)
-				cx = ClientWithContext(cx, a.mc)
-				// ctxWithLogger := context.WithValue(ctxWithClient, LoggerContextKey{}, a.logger)
-				if err := a.processor(cx, record); err != nil {
-					a.mc.ClearIterator()
-					a.logger.Error("error processing record", "error", err, "processor", a.processor)
-					return err
-				}
-				a.logger.Debug("commiting record")
-				if err := a.mc.CommitRecord(ctx, record); err != nil {
-					a.logger.Error("error commiting record", "error", err)
-					a.mc.ClearIterator()
-					return err
-				}
+			if err := a.processRecords(ctx, records); err != nil {
+				return err
 			}
 			a.logger.Debug("checking sleep", "sleep_time", a.SleepAfterProcessing)
 			if a.SleepAfterProcessing != 0 {
@@ -132,4 +130,30 @@ func (a *Actor) Work(ctx context.Context) error {
 			}
 		}
 	}
+}
+func (a *Actor) processRecords(ctx context.Context, records []*metamorphosisv1.Record) error {
+	for _, record := range records {
+		if record == nil {
+			a.logger.Debug("record is nil")
+			continue
+		}
+		a.logger.Debug("processing record", "record", record)
+
+		cx := LoggerWithContext(ctx, a.logger)
+		cx = ClientWithContext(cx, a.mc)
+		recordSequence := record.Sequence
+		// ctxWithLogger := context.WithValue(ctxWithClient, LoggerContextKey{}, a.logger)
+		if err := a.processor(cx, record); err != nil {
+			a.mc.ClearIterator()
+			a.logger.Error("error processing record", "error", err, "processor", a.processor)
+			return err
+		}
+		a.logger.Debug("commiting record")
+		if err := a.mc.CommitRecord(ctx, recordSequence); err != nil {
+			a.logger.Error("error commiting record", "error", err)
+			a.mc.ClearIterator()
+			return err
+		}
+	}
+	return nil
 }

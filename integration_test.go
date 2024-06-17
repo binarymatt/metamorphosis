@@ -179,10 +179,7 @@ func (i *IntegrationTestSuite) TestCommitRecord_Success() {
 	ctx := context.Background()
 	client := defaultClient("worker1")
 	i.setupReservation("worker1", "firstRecord", i.t.Add(30*time.Second).Unix())
-	err := client.CommitRecord(ctx, &metamorphosisv1.Record{
-		Id:       "testRecord",
-		Sequence: "lastRecord",
-	})
+	err := client.CommitRecord(ctx, "lastRecord")
 	must.NoError(i.T(), err)
 
 	expected := Reservation{
@@ -199,10 +196,7 @@ func (i *IntegrationTestSuite) TestCommitRecord_Success() {
 func (i *IntegrationTestSuite) TestCommitRecord_Noreservation() {
 	ctx := context.Background()
 	client := defaultClient("worker1")
-	err := client.CommitRecord(ctx, &metamorphosisv1.Record{
-		Id:       "testRecord",
-		Sequence: "lastRecord",
-	})
+	err := client.CommitRecord(ctx, "lastRecord")
 	i.Require().ErrorIs(err, ErrShardReserved)
 	i.Nil(client.reservation)
 
@@ -258,7 +252,7 @@ func (i *IntegrationTestSuite) TestFetchCommitLoop() {
 
 	must.Eq(i.T(), "record0", actual.Id)
 
-	err = client.CommitRecord(ctx, actual)
+	err = client.CommitRecord(ctx, actual.Sequence)
 	must.NoError(i.T(), err)
 
 	res := i.getCurrentReservation(group, shard)

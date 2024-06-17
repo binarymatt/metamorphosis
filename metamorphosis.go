@@ -34,9 +34,13 @@ type Client struct {
 }
 
 func NewClient(config *Config) *Client {
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Client{
 		config:               config,
-		logger:               config.Logger.With("seed", config.Seed, "worker", config.WorkerID, "group", config.GroupID),
+		logger:               logger.With("seed", config.Seed, "worker", config.WorkerID, "group", config.GroupID),
 		nextIterator:         aws.String(""),
 		iteratorCacheExpires: Now(),
 	}

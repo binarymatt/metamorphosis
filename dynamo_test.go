@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/shoenig/test/must"
 
-	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 	"github.com/binarymatt/metamorphosis/mocks"
 )
 
@@ -130,7 +129,7 @@ func TestCommitRecord(t *testing.T) {
 		},
 	}
 	dc.EXPECT().UpdateItem(ctx, input).Return(output, nil).Once()
-	err := m.CommitRecord(ctx, &metamorphosisv1.Record{Sequence: "sequence1"})
+	err := m.CommitRecord(ctx, "sequence1")
 	must.NoError(t, err)
 	must.Eq(t, &Reservation{
 		GroupID:        "group",

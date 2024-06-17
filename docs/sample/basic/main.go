@@ -29,7 +29,7 @@ func main() {
 		return
 	}
 	slog.Info("retrieved record", "record", record)
-	if err := client.CommitRecord(context.Background(), record); err != nil {
+	if err := client.CommitRecord(context.Background(), record.Sequence); err != nil {
 		slog.Error("error committing record", "error", err)
 	}
 }

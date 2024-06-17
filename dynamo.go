@@ -10,8 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-
-	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 )
 
 const (
@@ -270,8 +268,8 @@ func (m *Client) RenewReservation(ctx context.Context) error {
 	}
 }
 
-func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Record) error {
-	sequence := record.Sequence
+func (m *Client) CommitRecord(ctx context.Context, sequence string) error {
+	// sequence := record.Sequence
 	client := m.config.DynamoClient
 
 	condition := expression.Name(WorkerIDKey).Equal(expression.Value(m.config.WorkerID))
