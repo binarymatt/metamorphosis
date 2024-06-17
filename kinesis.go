@@ -51,44 +51,44 @@ func (c *Client) IsIteratorClosed(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func (m *Client) getShardIterator(ctx context.Context) (*string, error) {
-	kc := m.config.KinesisClient
-	m.logger.Debug("getting shard iterator")
-	if m.reservation == nil {
+func (c *Client) getShardIterator(ctx context.Context) (*string, error) {
+	kc := c.config.KinesisClient
+	c.logger.Debug("getting shard iterator")
+	if c.reservation == nil {
 		return nil, ErrMissingReservation
 	}
 	now := Now()
 	expiredCache := false
-	if now.After(m.iteratorCacheExpires) {
-		m.logger.Warn("iterator cache time is up", "cacheExpires", m.iteratorCacheExpires, "now", now)
+	if now.After(c.iteratorCacheExpires) {
+		c.logger.Warn("iterator cache time is up", "cacheExpires", c.iteratorCacheExpires, "now", now)
 		expiredCache = true
 	}
 	input := &kinesis.GetShardIteratorInput{
-		StreamARN: &m.config.StreamARN,
-		ShardId:   &m.config.ShardID,
+		StreamARN: &c.config.StreamARN,
+		ShardId:   &c.config.ShardID,
 	}
 
-	if m.reservation.LatestSequence != "" {
+	if c.reservation.LatestSequence != "" {
 		input.ShardIteratorType = types.ShardIteratorTypeAfterSequenceNumber
-		input.StartingSequenceNumber = &m.reservation.LatestSequence
+		input.StartingSequenceNumber = &c.reservation.LatestSequence
 	} else {
 		input.ShardIteratorType = types.ShardIteratorTypeTrimHorizon
 	}
-	m.logger.Debug("shard iterator input", "input", *input)
-	if (m.nextIterator != nil && *m.nextIterator == "") || expiredCache {
-		m.logger.Info("getting iterator from kinesis API endpoiont", "shard", m.config.ShardID)
+	c.logger.Debug("shard iterator input", "input", *input)
+	if (c.nextIterator != nil && *c.nextIterator == "") || expiredCache {
+		c.logger.Info("getting iterator from kinesis API endpoiont", "shard", c.config.ShardID)
 		out, err := kc.GetShardIterator(ctx, input)
 		if err != nil {
-			m.logger.Error("error getting shard iterator", "error", err)
+			c.logger.Error("error getting shard iterator", "error", err)
 			return nil, err
 		}
-		m.logger.Debug("iterator result", "iterator", *out.ShardIterator, "last_sequence", m.reservation.LatestSequence, "shard", m.config.ShardID)
-		m.nextIterator = out.ShardIterator
-		m.iteratorCacheExpires = Now().Add(2 * time.Minute)
+		c.logger.Debug("iterator result", "iterator", *out.ShardIterator, "last_sequence", c.reservation.LatestSequence, "shard", c.config.ShardID)
+		c.nextIterator = out.ShardIterator
+		c.iteratorCacheExpires = Now().Add(2 * time.Minute)
 	} else {
-		m.logger.Warn("getting cached iterator", "shard", m.config.ShardID)
+		c.logger.Warn("getting cached iterator", "shard", c.config.ShardID)
 	}
-	return m.nextIterator, nil
+	return c.nextIterator, nil
 }
 
 func (m *Client) ClearIterator() {
