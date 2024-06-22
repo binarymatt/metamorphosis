@@ -45,6 +45,7 @@ func NewConfig(opts ...Option) *Config {
 		RenewTime:            30 * time.Second,
 		ReservationTimeout:   1 * time.Minute,
 		ReservationTableName: "metamorphosis_reservations",
+		ManagerLoopWaitTime:  1 * time.Millisecond,
 	}
 	for _, opt := range opts {
 		opt(cfg)

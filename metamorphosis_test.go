@@ -30,12 +30,19 @@ func testConfig(opts ...Option) *Config {
 		ShardID:              "shardID",
 		ReservationTimeout:   1 * time.Second,
 		Logger:               slog.Default(),
+		ManagerLoopWaitTime:  1 * time.Millisecond,
 	}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 	return cfg
 
+}
+func testConfigWithMocks(t *testing.T) (*Config, *mocks.KinesisAPI, *mocks.DynamoDBAPI) {
+	dc := mocks.NewDynamoDBAPI(t)
+	kc := mocks.NewKinesisAPI(t)
+	cfg := testConfig(WithDynamoClient(dc), WithKinesisClient(kc))
+	return cfg, kc, dc
 }
 func TestInit_InvalidConfig(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)

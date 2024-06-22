@@ -304,3 +304,38 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	must.NoError(t, err)
 	must.Eq(t, m.currentActorCount, 1)
 }
+
+func TestStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg, kc, dc := testConfigWithMocks(t)
+	manager := New(cfg)
+	kc.EXPECT().DescribeStreamSummary(
+		mock.AnythingOfType("*context.cancelCtx"),
+		&kinesis.DescribeStreamSummaryInput{
+			StreamARN: aws.String("arn"),
+		}).
+		Return(&kinesis.DescribeStreamSummaryOutput{
+			StreamDescriptionSummary: &types.StreamDescriptionSummary{
+				StreamStatus: types.StreamStatusActive,
+			},
+		}, nil)
+	kc.EXPECT().ListShards(mock.AnythingOfType("*context.cancelCtx"), &kinesis.ListShardsInput{
+		StreamARN: aws.String("arn"),
+	}).Return(&kinesis.ListShardsOutput{}, nil)
+	dc.EXPECT().Query(mock.AnythingOfType("*context.cancelCtx"), &dynamodb.QueryInput{
+		TableName:              aws.String("table"),
+		KeyConditionExpression: aws.String("#0 = :0"),
+		ExpressionAttributeNames: map[string]string{
+			"#0": "groupID",
+		},
+		ExpressionAttributeValues: map[string]dtypes.AttributeValue{
+			":0": &dtypes.AttributeValueMemberS{Value: "arn-group"},
+		},
+	}).Return(&dynamodb.QueryOutput{}, nil)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+	err := manager.Start(ctx)
+	must.NoError(t, err)
+}
