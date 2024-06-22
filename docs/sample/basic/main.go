@@ -33,3 +33,7 @@ func main() {
 		slog.Error("error committing record", "error", err)
 	}
 }
+
+func test() error {
+	return nil
+}
