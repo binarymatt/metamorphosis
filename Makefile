@@ -8,7 +8,7 @@ clean:
 
 .PHONY: test
 test:
-	gotestsum -- -coverprofile=cover.out ./...
+	gotestsum -- -coverprofile=cover.out github.com/binarymatt/metamorphosis
 
 .PHONY: integration
 integration:

@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	ktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/shoenig/test/must"
 	"github.com/stretchr/testify/mock"
@@ -31,12 +30,19 @@ func testConfig(opts ...Option) *Config {
 		ShardID:              "shardID",
 		ReservationTimeout:   1 * time.Second,
 		Logger:               slog.Default(),
+		ManagerLoopWaitTime:  1 * time.Millisecond,
 	}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 	return cfg
 
+}
+func testConfigWithMocks(t *testing.T) (*Config, *mocks.KinesisAPI, *mocks.DynamoDBAPI) {
+	dc := mocks.NewDynamoDBAPI(t)
+	kc := mocks.NewKinesisAPI(t)
+	cfg := testConfig(WithDynamoClient(dc), WithKinesisClient(kc))
+	return cfg, kc, dc
 }
 func TestInit_InvalidConfig(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
@@ -82,7 +88,7 @@ func TestReserveShard(t *testing.T) {
 	input := &dynamodb.UpdateItemInput{
 		TableName: aws.String("table"),
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: "group"},
+			GroupIDKey: &types.AttributeValueMemberS{Value: "arn-group"},
 			ShardIDKey: &types.AttributeValueMemberS{Value: "shardID"},
 		},
 		ConditionExpression: aws.String("(attribute_not_exists (#0)) OR (#1 = :0) OR (#0 < :1)"),
@@ -111,7 +117,7 @@ func TestReserveShard(t *testing.T) {
 			name: "happy path",
 			out: &dynamodb.UpdateItemOutput{
 				Attributes: map[string]types.AttributeValue{
-					"groupID":        &types.AttributeValueMemberS{Value: "group"},
+					"groupID":        &types.AttributeValueMemberS{Value: "arn-group"},
 					"shardID":        &types.AttributeValueMemberS{Value: "shardID"},
 					"workerID":       &types.AttributeValueMemberS{Value: "worker"},
 					"expiresAt":      &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", expires+1)},
@@ -119,7 +125,7 @@ func TestReserveShard(t *testing.T) {
 				},
 			},
 			reservation: &Reservation{
-				GroupID:        "group",
+				GroupID:        "arn-group",
 				ShardID:        "shardID",
 				WorkerID:       "worker",
 				ExpiresAt:      expires + 1,
@@ -164,7 +170,7 @@ func TestReleaseReservation(t *testing.T) {
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: "arn-group"},
 			ShardIDKey: &types.AttributeValueMemberS{Value: config.ShardID},
 		},
 		ConditionExpression: aws.String("#0 = :0"),
@@ -192,7 +198,7 @@ func TestReleaseReservation_Error(t *testing.T) {
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: "arn-group"},
 			ShardIDKey: &types.AttributeValueMemberS{Value: config.ShardID},
 		},
 		ConditionExpression: aws.String("#0 = :0"),
@@ -226,124 +232,6 @@ func TestIsReserved(t *testing.T) {
 		ShardID: "1",
 	})
 	must.True(t, c.IsReserved(reservations, shard))
-}
-
-func TestRetrieveRandomShardID(t *testing.T) {
-	ctx := context.Background()
-	cases := []struct {
-		name   string
-		setup  func(*mocks.DynamoDBAPI, *mocks.KinesisAPI)
-		err    error
-		shard  string
-		offset int
-	}{
-		{
-			name: "no reservations",
-			setup: func(dc *mocks.DynamoDBAPI, kc *mocks.KinesisAPI) {
-
-				dc.EXPECT().Query(ctx, mock.AnythingOfType("*dynamodb.QueryInput")).Return(&dynamodb.QueryOutput{}, nil).Once()
-				kc.EXPECT().ListShards(ctx, mock.AnythingOfType("*kinesis.ListShardsInput")).
-					Return(&kinesis.ListShardsOutput{
-						Shards: []ktypes.Shard{
-							{ShardId: aws.String("1")},
-						},
-					}, nil)
-			},
-			shard: "1",
-		},
-		{
-			name: "all reservered",
-			setup: func(dc *mocks.DynamoDBAPI, kc *mocks.KinesisAPI) {
-
-				dc.EXPECT().Query(ctx, mock.AnythingOfType("*dynamodb.QueryInput")).
-					Return(&dynamodb.QueryOutput{
-						Items: []map[string]types.AttributeValue{
-							{
-								"groupID": &types.AttributeValueMemberS{
-									Value: "group",
-								},
-								"shardID": &types.AttributeValueMemberS{
-									Value: "1",
-								},
-								"WorkerID": &types.AttributeValueMemberS{
-									Value: "worker",
-								},
-								"expiresAt": &types.AttributeValueMemberN{
-									Value: "0",
-								},
-								"latestSequence": &types.AttributeValueMemberS{
-									Value: "last",
-								},
-							},
-						},
-					}, nil).Once()
-				kc.EXPECT().ListShards(ctx, mock.AnythingOfType("*kinesis.ListShardsInput")).
-					Return(&kinesis.ListShardsOutput{
-						Shards: []ktypes.Shard{
-							{ShardId: aws.String("1")},
-						},
-					}, nil)
-			},
-			shard: "",
-			err:   ErrAllShardsReserved,
-		},
-		{
-			name: "offset",
-			setup: func(dc *mocks.DynamoDBAPI, kc *mocks.KinesisAPI) {
-
-				dc.EXPECT().Query(ctx, mock.AnythingOfType("*dynamodb.QueryInput")).
-					Return(&dynamodb.QueryOutput{
-						Items: []map[string]types.AttributeValue{},
-					}, nil).Once()
-				kc.EXPECT().ListShards(ctx, mock.AnythingOfType("*kinesis.ListShardsInput")).
-					Return(&kinesis.ListShardsOutput{
-						Shards: []ktypes.Shard{
-							{ShardId: aws.String("1")},
-						},
-					}, nil)
-			},
-			shard:  "1",
-			offset: 1,
-		},
-		{
-			name: "list reservations error",
-			setup: func(dc *mocks.DynamoDBAPI, kc *mocks.KinesisAPI) {
-
-				dc.EXPECT().Query(ctx, mock.AnythingOfType("*dynamodb.QueryInput")).
-					Return(&dynamodb.QueryOutput{}, errors.New("oops")).Once()
-			},
-			err: errors.New("oops"),
-		},
-		{
-			name: "list shards error",
-			setup: func(dc *mocks.DynamoDBAPI, kc *mocks.KinesisAPI) {
-
-				dc.EXPECT().Query(ctx, mock.AnythingOfType("*dynamodb.QueryInput")).
-					Return(&dynamodb.QueryOutput{
-						Items: []map[string]types.AttributeValue{},
-					}, nil).Once()
-				kc.EXPECT().ListShards(ctx, mock.AnythingOfType("*kinesis.ListShardsInput")).
-					Return(&kinesis.ListShardsOutput{}, errors.New("oops list shards error"))
-			},
-			err: errors.New("oops list shards error"),
-		},
-	}
-	for _, tc := range cases {
-		must.True(t, t.Run(tc.name, func(t *testing.T) {
-			dc := mocks.NewDynamoDBAPI(t)
-			kc := mocks.NewKinesisAPI(t)
-			config := testConfig()
-			config.DynamoClient = dc
-			config.KinesisClient = kc
-			config.Seed = tc.offset
-			tc.setup(dc, kc)
-			m := NewClient(config)
-			s, err := m.retrieveRandomShardID(ctx)
-			must.Eq(t, tc.err, err)
-			must.Eq(t, tc.shard, s)
-		}))
-	}
-
 }
 
 func TestProtoInProto(t *testing.T) {

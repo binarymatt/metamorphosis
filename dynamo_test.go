@@ -11,11 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/shoenig/test/must"
 
-	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 	"github.com/binarymatt/metamorphosis/mocks"
 )
 
-func TestListReservations(t *testing.T) {
+func TestListUnexpiredReservations(t *testing.T) {
 	n := time.Now()
 	Now = func() time.Time {
 		return n
@@ -24,6 +23,7 @@ func TestListReservations(t *testing.T) {
 	m := NewClient(NewConfig(
 		WithReservationTableName("metamorphosis_reservations"),
 		WithDynamoClient(dc),
+		WithStreamArn("arn"),
 		WithGroup("testGroup")))
 
 	must.True(t, t.Run("happy path", func(t *testing.T) {
@@ -38,7 +38,7 @@ func TestListReservations(t *testing.T) {
 					Value: fmt.Sprintf("%d", n.Unix()),
 				},
 				":1": &types.AttributeValueMemberS{
-					Value: "testGroup",
+					Value: "arn-testGroup",
 				},
 			},
 			KeyConditionExpression: aws.String("#1 = :1"),
@@ -65,7 +65,7 @@ func TestListReservations(t *testing.T) {
 					},
 				},
 			}, nil).Once()
-		reservations, err := m.ListReservations(context.Background())
+		reservations, err := m.ListUnexpiredReservations(context.Background())
 		must.NoError(t, err)
 		expectedReservations := []Reservation{
 			{
@@ -102,7 +102,7 @@ func TestCommitRecord(t *testing.T) {
 	input := &dynamodb.UpdateItemInput{
 		TableName: &config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: "arn-group"},
 			ShardIDKey: &types.AttributeValueMemberS{Value: config.ShardID},
 		},
 		ConditionExpression: aws.String("#0 = :0"),
@@ -129,7 +129,7 @@ func TestCommitRecord(t *testing.T) {
 		},
 	}
 	dc.EXPECT().UpdateItem(ctx, input).Return(output, nil).Once()
-	err := m.CommitRecord(ctx, &metamorphosisv1.Record{Sequence: "sequence1"})
+	err := m.CommitRecord(ctx, "sequence1")
 	must.NoError(t, err)
 	must.Eq(t, &Reservation{
 		GroupID:        "group",

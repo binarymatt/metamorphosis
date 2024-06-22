@@ -10,8 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-
-	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 )
 
 const (
@@ -20,6 +18,7 @@ const (
 	WorkerIDKey       = "workerID"
 	ExpiresAtKey      = "expiresAt"
 	LatestSequenceKey = "latestSequence"
+	StreamArnKey      = "streamArn"
 )
 
 var (
@@ -56,10 +55,46 @@ type DynamoDBAPI interface {
 	DeleteTable(ctx context.Context, params *dynamodb.DeleteTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteTableOutput, error)
 }
 
-func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
+func (c *Client) ListAllReservations(ctx context.Context) ([]Reservation, error) {
+	c.logger.Info("listing all reservations")
+	client := c.config.DynamoClient
+	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(c.config.GroupKey()))
+
+	expr, err := expression.NewBuilder().
+		WithKeyCondition(keyCondition).
+		Build()
+
+	if err != nil {
+		return nil, err
+	}
+
+	input := &dynamodb.QueryInput{
+		TableName:                 aws.String(c.config.ReservationTableName),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		KeyConditionExpression:    expr.KeyCondition(),
+		FilterExpression:          expr.Filter(),
+	}
+	p := dynamodb.NewQueryPaginator(client, input)
+	var reservations []Reservation
+	for p.HasMorePages() {
+		out, err := p.NextPage(ctx)
+		if err != nil {
+			c.logger.Error("error getting existing reservations")
+			return nil, err
+		}
+		var pReservations []Reservation
+		if err := attributevalue.UnmarshalListOfMaps(out.Items, &pReservations); err != nil {
+			return nil, err
+		}
+		reservations = append(reservations, pReservations...)
+	}
+	return reservations, err
+}
+func (m *Client) ListUnexpiredReservations(ctx context.Context) ([]Reservation, error) {
 	m.logger.Info("listing reservations")
 	client := m.config.DynamoClient
-	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(m.config.GroupID))
+	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(m.config.GroupKey()))
 
 	now := Now()
 	filter := expression.Name(ExpiresAtKey).GreaterThan(expression.Value(now.Unix()))
@@ -91,10 +126,46 @@ func (m *Client) ListReservations(ctx context.Context) ([]Reservation, error) {
 	}
 	return reservations, err
 }
+
+func (c *Client) CloseShard(ctx context.Context) error {
+	client := c.config.DynamoClient
+	logger := c.logger.With("shard", c.config.ShardID, "worker", c.config.WorkerID, "group", c.config.GroupID, "stream", c.config.StreamARN)
+	logger.Info("closing shard")
+
+	update := expression.Set(expression.Name(LatestSequenceKey), expression.Value(ShardClosed))
+	// condition := expression.Name(StreamArnKey).Equal(expression.Value(c.config.StreamARN))
+
+	expr, err := expression.NewBuilder().
+		WithUpdate(update).
+		Build()
+	if err != nil {
+		return err
+	}
+
+	input := &dynamodb.UpdateItemInput{
+		Key: map[string]types.AttributeValue{
+			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupKey()},
+			ShardIDKey: &types.AttributeValueMemberS{Value: c.config.ShardID},
+		},
+		TableName:                 &c.config.ReservationTableName,
+		ConditionExpression:       expr.Condition(),
+		UpdateExpression:          expr.Update(),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		ReturnValues:              types.ReturnValueNone,
+	}
+	_, err = client.UpdateItem(ctx, input)
+	if err != nil {
+		logger.Error("could not mark reservation as closed")
+		return err
+	}
+	return nil
+}
+
 func (c *Client) ReserveShard(ctx context.Context) error {
 	client := c.config.DynamoClient
-	logger := c.logger.With("shard", c.config.ShardID, "timeout", c.config.ReservationTimeout, "worker", c.config.WorkerID, "group", c.config.GroupID)
-	logger.Info("starting shard reservation")
+	logger := c.logger.With("shard", c.config.ShardID, "timeout", c.config.ReservationTimeout, "worker", c.config.WorkerID, "group", c.config.GroupID, "stream", c.config.StreamARN)
+	logger.Debug("starting shard reservation")
 	// 1. Is there an existing reservation for this group/worker, if so use that.
 	// conditional PutItem
 	now := Now()
@@ -119,7 +190,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 	input := &dynamodb.UpdateItemInput{
 		TableName: &c.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupKey()},
 			ShardIDKey: &types.AttributeValueMemberS{Value: c.config.ShardID},
 		},
 		ConditionExpression:       expr.Condition(),
@@ -145,7 +216,8 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 		return err
 	}
 	c.reservation = &reservation
-	c.logger.Info("reservation made", "expires", expires, "sequence", c.reservation.LatestSequence)
+	// c.logger = c.logger.With("shard_id", reservation.ShardID)
+	c.logger.Debug("reservation made", "expires", expires, "sequence", c.reservation.LatestSequence)
 	return nil
 }
 
@@ -168,7 +240,7 @@ func (m *Client) ReleaseReservation(ctx context.Context) error {
 	_, err = client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: &m.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupKey()},
 			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
 		},
 		ConditionExpression:       expr.Condition(),
@@ -196,8 +268,8 @@ func (m *Client) RenewReservation(ctx context.Context) error {
 	}
 }
 
-func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Record) error {
-	sequence := record.Sequence
+func (m *Client) CommitRecord(ctx context.Context, sequence string) error {
+	// sequence := record.Sequence
 	client := m.config.DynamoClient
 
 	condition := expression.Name(WorkerIDKey).Equal(expression.Value(m.config.WorkerID))
@@ -216,7 +288,7 @@ func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Recor
 
 	input := &dynamodb.UpdateItemInput{
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupKey()},
 			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
 		},
 		TableName:                 &m.config.ReservationTableName,
@@ -248,16 +320,18 @@ func (m *Client) CommitRecord(ctx context.Context, record *metamorphosisv1.Recor
 	m.reservation = &reservation
 	return nil
 }
-
-func (m *Client) fetchReservation(ctx context.Context) (*Reservation, error) {
+func (c *Client) fetchClientReservation(ctx context.Context) (*Reservation, error) {
+	return c.fetchReservation(ctx, c.config.ShardID)
+}
+func (m *Client) fetchReservation(ctx context.Context, shardID string) (*Reservation, error) {
 	client := m.config.DynamoClient
 
-	m.logger.Info("fetching reservation", "group", m.config.GroupID, "shard", m.config.ShardID, "table", m.config.ReservationTableName)
+	m.logger.Debug("fetching reservation", "group", m.config.GroupID, "shard", shardID, "table", m.config.ReservationTableName)
 	input := &dynamodb.GetItemInput{
 		TableName: &m.config.ReservationTableName,
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupID},
-			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupKey()},
+			ShardIDKey: &types.AttributeValueMemberS{Value: shardID},
 		},
 	}
 	out, err := client.GetItem(ctx, input)
@@ -265,9 +339,9 @@ func (m *Client) fetchReservation(ctx context.Context) (*Reservation, error) {
 		m.logger.Error("error getting item", "error", err)
 		return nil, err
 	}
-	m.logger.Info("retrieved reservation", "item", out.Item)
+	m.logger.Debug("retrieved reservation", "item", out.Item)
 	if out.Item == nil {
-		m.logger.Error("no reservation retrieved")
+		// m.logger.Error("no reservation retrieved", "shard", shardID)
 		return nil, ErrNotFound
 	}
 	var reservation Reservation

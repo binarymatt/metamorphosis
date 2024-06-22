@@ -130,7 +130,7 @@ func TestFetchRecords(t *testing.T) {
 	dc.EXPECT().GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String("table"),
 		Key: map[string]dtypes.AttributeValue{
-			GroupIDKey: &dtypes.AttributeValueMemberS{Value: "group"},
+			GroupIDKey: &dtypes.AttributeValueMemberS{Value: "arn-group"},
 			ShardIDKey: &dtypes.AttributeValueMemberS{Value: "shardID"},
 		},
 	}).

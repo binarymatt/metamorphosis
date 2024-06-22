@@ -23,28 +23,18 @@ import (
 
 func TestNew(t *testing.T) {
 	config := testConfig()
-	m := New(context.Background(), config)
+	m := New(config)
 	must.NotNil(t, m)
 	must.Eq(t, m.currentActorCount, 0)
 	must.Eq(t, m.config, config)
 }
 
-func TestActorWork_NoReservation(t *testing.T) {
-	config := testConfig()
-	cl := NewClient(config)
-	a := Actor{
-		id: "test",
-		mc: cl,
-	}
-	err := a.Work(context.Background())
-	must.ErrorIs(t, err, ErrMissingReservation)
-}
 func TestManager_shardStateCached(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
-	m := New(ctx, config)
+	m := New(config)
 	m.cacheLastChecked = time.Now()
 	err := m.shardsState(ctx)
 	must.NoError(t, err)
@@ -55,24 +45,38 @@ func TestManager_shardStateRefresh(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
-	m := New(ctx, config)
+	m := New(config)
 	m.cacheLastChecked = time.Now().Add(-1 * time.Hour)
 
-	kc.EXPECT().DescribeStream(ctx, &kinesis.DescribeStreamInput{
+	kc.EXPECT().DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
 		StreamARN: aws.String("arn"),
-	}).Return(&kinesis.DescribeStreamOutput{
-		StreamDescription: &types.StreamDescription{
-			Shards: []types.Shard{
-				{ShardId: aws.String("shard1")},
-			},
+	}).Return(&kinesis.DescribeStreamSummaryOutput{
+		StreamDescriptionSummary: &types.StreamDescriptionSummary{
+			StreamStatus: types.StreamStatusActive,
 		},
 	}, nil)
-	must.Eq(t, map[string]types.Shard{}, m.cachedShards)
+
+	kc.EXPECT().ListShards(ctx, &kinesis.ListShardsInput{
+		StreamARN: aws.String("arn"),
+	}).Return(&kinesis.ListShardsOutput{
+		Shards: []types.Shard{{ShardId: aws.String("shard1")}},
+	}, nil)
+
+	dc.EXPECT().Query(ctx, &dynamodb.QueryInput{
+		TableName:                aws.String("table"),
+		KeyConditionExpression:   aws.String("#0 = :0"),
+		ExpressionAttributeNames: map[string]string{"#0": "groupID"},
+		ExpressionAttributeValues: map[string]dtypes.AttributeValue{
+			":0": &dtypes.AttributeValueMemberS{Value: "arn-group"},
+		},
+	}).Return(&dynamodb.QueryOutput{}, nil)
+
+	must.Eq(t, map[string]ShardState{}, m.cachedShards)
 	err := m.shardsState(ctx)
 	must.NoError(t, err)
-	expectedShardState := map[string]types.Shard{
+	expectedShardState := map[string]ShardState{
 		"shard1": {
-			ShardId: aws.String("shard1"),
+			Shard: types.Shard{ShardId: aws.String("shard1")},
 		},
 	}
 	must.Eq(t, expectedShardState, m.cachedShards)
@@ -83,17 +87,18 @@ func TestManager_shardStateKinesisError(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc), WithShardCacheDuration(1*time.Second))
-	m := New(ctx, config)
+	m := New(config)
 	m.cacheLastChecked = time.Now().Add(-1 * time.Hour)
 
 	oops := errors.New("oops")
-	kc.EXPECT().DescribeStream(ctx, &kinesis.DescribeStreamInput{
+	kc.EXPECT().DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
 		StreamARN: aws.String("arn"),
-	}).Return(&kinesis.DescribeStreamOutput{}, oops)
-	must.Eq(t, map[string]types.Shard{}, m.cachedShards)
+	}).Return(&kinesis.DescribeStreamSummaryOutput{}, oops)
+	must.Eq(t, map[string]ShardState{}, m.cachedShards)
 	err := m.shardsState(ctx)
 	must.ErrorIs(t, err, oops)
 }
+
 func TestManager_LoopNoShards(t *testing.T) {
 	n := time.Now()
 	Now = func() time.Time {
@@ -105,30 +110,26 @@ func TestManager_LoopNoShards(t *testing.T) {
 	kc := mocks.NewKinesisAPI(t)
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc))
 	config.ManagerLoopWaitTime = 100 * time.Millisecond
-	m := New(context.Background(), config)
+	m := New(config)
 	m.internalClient = NewClient(config)
-	kc.EXPECT().DescribeStream(ctx, &kinesis.DescribeStreamInput{
+	kc.EXPECT().DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
 		StreamARN: aws.String("arn"),
 	}).
-		Return(&kinesis.DescribeStreamOutput{
-			StreamDescription: &types.StreamDescription{},
+		Return(&kinesis.DescribeStreamSummaryOutput{
+			StreamDescriptionSummary: &types.StreamDescriptionSummary{},
 		}, nil)
-	dc.EXPECT().Query(ctx, &dynamodb.QueryInput{
+	kc.EXPECT().ListShards(ctx, &kinesis.ListShardsInput{StreamARN: aws.String("arn")}).Return(&kinesis.ListShardsOutput{}, nil)
+	dc.EXPECT().Query(mock.AnythingOfType("*context.cancelCtx"), &dynamodb.QueryInput{
 		TableName: aws.String("table"),
 		ExpressionAttributeNames: map[string]string{
-			"#0": "expiresAt",
-			"#1": "groupID",
+			"#0": "groupID",
 		},
 		ExpressionAttributeValues: map[string]dtypes.AttributeValue{
-			":0": &dtypes.AttributeValueMemberN{
-				Value: fmt.Sprintf("%d", n.Unix()),
-			},
-			":1": &dtypes.AttributeValueMemberS{
-				Value: "group",
+			":0": &dtypes.AttributeValueMemberS{
+				Value: "arn-group",
 			},
 		},
-		KeyConditionExpression: aws.String("#1 = :1"),
-		FilterExpression:       aws.String("#0 > :0"),
+		KeyConditionExpression: aws.String("#0 = :0"),
 	}).
 		Return(&dynamodb.QueryOutput{}, nil)
 	eg.Go(func() error {
@@ -160,19 +161,15 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	config.RecordProcessor = func(ctx context.Context, record *metamorphosisv1.Record) error {
 		return nil
 	}
-	m := New(context.Background(), config)
+	m := New(config)
 	m.internalClient = NewClient(config)
 
 	// mock get available shards
-	kc.EXPECT().DescribeStream(ctx, &kinesis.DescribeStreamInput{
+	kc.EXPECT().DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
 		StreamARN: aws.String("arn"),
 	}).
-		Return(&kinesis.DescribeStreamOutput{
-			StreamDescription: &types.StreamDescription{
-				Shards: []types.Shard{
-					{ShardId: aws.String("shard1")},
-				},
-			},
+		Return(&kinesis.DescribeStreamSummaryOutput{
+			StreamDescriptionSummary: &types.StreamDescriptionSummary{},
 		}, nil)
 
 	// mock get reservations
@@ -212,7 +209,7 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	dc.EXPECT().UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String("table"),
 		Key: map[string]dtypes.AttributeValue{
-			GroupIDKey: &dtypes.AttributeValueMemberS{Value: "group"},
+			GroupIDKey: &dtypes.AttributeValueMemberS{Value: "arn-group"},
 			ShardIDKey: &dtypes.AttributeValueMemberS{Value: "shard1"},
 		},
 		ConditionExpression: aws.String("(attribute_not_exists (#0)) OR (#1 = :0) OR (#0 < :1)"),
@@ -306,4 +303,39 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 	err = eg.Wait()
 	must.NoError(t, err)
 	must.Eq(t, m.currentActorCount, 1)
+}
+
+func TestStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg, kc, dc := testConfigWithMocks(t)
+	manager := New(cfg)
+	kc.EXPECT().DescribeStreamSummary(
+		mock.AnythingOfType("*context.cancelCtx"),
+		&kinesis.DescribeStreamSummaryInput{
+			StreamARN: aws.String("arn"),
+		}).
+		Return(&kinesis.DescribeStreamSummaryOutput{
+			StreamDescriptionSummary: &types.StreamDescriptionSummary{
+				StreamStatus: types.StreamStatusActive,
+			},
+		}, nil)
+	kc.EXPECT().ListShards(mock.AnythingOfType("*context.cancelCtx"), &kinesis.ListShardsInput{
+		StreamARN: aws.String("arn"),
+	}).Return(&kinesis.ListShardsOutput{}, nil)
+	dc.EXPECT().Query(mock.AnythingOfType("*context.cancelCtx"), &dynamodb.QueryInput{
+		TableName:              aws.String("table"),
+		KeyConditionExpression: aws.String("#0 = :0"),
+		ExpressionAttributeNames: map[string]string{
+			"#0": "groupID",
+		},
+		ExpressionAttributeValues: map[string]dtypes.AttributeValue{
+			":0": &dtypes.AttributeValueMemberS{Value: "arn-group"},
+		},
+	}).Return(&dynamodb.QueryOutput{}, nil)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+	err := manager.Start(ctx)
+	must.NoError(t, err)
 }

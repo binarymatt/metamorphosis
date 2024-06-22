@@ -45,6 +45,7 @@ func NewConfig(opts ...Option) *Config {
 		RenewTime:            30 * time.Second,
 		ReservationTimeout:   1 * time.Minute,
 		ReservationTableName: "metamorphosis_reservations",
+		ManagerLoopWaitTime:  1 * time.Millisecond,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -159,4 +160,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("reservation table name must be present: %w", ErrInvalidConfiguration)
 	}
 	return nil
+}
+
+func (c *Config) GroupKey() string {
+	return fmt.Sprintf("%s-%s", c.StreamARN, c.GroupID)
 }
