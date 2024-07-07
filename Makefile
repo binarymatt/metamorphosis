@@ -6,6 +6,9 @@ proto:
 clean:
 	rm -rf gen
 
+.PHONY: lint
+lint:
+	golangci-lint run
 .PHONY: test
 test:
 	gotestsum -- -coverprofile=cover.out github.com/binarymatt/metamorphosis
