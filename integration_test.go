@@ -64,7 +64,6 @@ func (i *IntegrationTestSuite) SetupTest() {
 	i.ctx = context.Background()
 	i.createTable()
 	n := time.Now()
-	Now = func() time.Time { return n }
 	i.t = n
 
 }

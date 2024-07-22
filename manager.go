@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/coder/quartz"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -30,6 +31,7 @@ func New(config *Config) *Manager {
 		logger:            logger.With("service", "manager"),
 		cachedShards:      map[string]ShardState{},
 		internalClient:    NewClient(config),
+		clock:             quartz.NewReal(),
 	}
 	return m
 }
@@ -50,6 +52,8 @@ type Manager struct {
 
 	cacheLastChecked time.Time
 	cachedShards     map[string]ShardState
+
+	clock quartz.Clock
 }
 
 func (m *Manager) Start(ctx context.Context) error {
@@ -191,7 +195,7 @@ func (m *Manager) DecrementActorCount() {
 
 func (m *Manager) GetAvailableShards(ctx context.Context) ([]types.Shard, error) {
 	m.logger.Info("checking for available shards", "current_actors", m.currentActorCount, "max_actors", m.config.MaxActorCount)
-	now := Now()
+	now := m.clock.Now()
 	if err := m.shardsState(ctx); err != nil {
 		m.logger.Error("error with stream/shards state", "error", err)
 		return nil, err
@@ -225,7 +229,7 @@ type ShardState struct {
 
 func (m *Manager) shardsState(ctx context.Context) error {
 	// do we need to check state again
-	now := Now()
+	now := m.clock.Now()
 	if now.Before(m.cacheLastChecked.Add(m.config.ShardCacheDuration)) {
 		m.logger.Debug("cache hasn't expired")
 		return nil
@@ -261,7 +265,7 @@ func (m *Manager) shardsState(ctx context.Context) error {
 		//m.logger.Warn("shard status", "id", *shard.ShardId, "parent", *shard.ParentShardId, "has_more_shard", *out.StreamDescription.HasMoreShards)
 	}
 	m.logger.Info("cached shard state", "count", len(m.cachedShards), "current_actors", m.currentActorCount)
-	m.cacheLastChecked = Now()
+	m.cacheLastChecked = m.clock.Now()
 	return nil
 }
 

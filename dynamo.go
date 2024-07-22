@@ -25,7 +25,6 @@ var (
 	ErrNotFound          = errors.New("reservation missing")
 	ErrShardReserved     = errors.New("shard is already reserved")
 	ErrAllShardsReserved = errors.New("all shards are reserved")
-	Now                  = time.Now
 )
 
 type Reservation struct {
@@ -96,7 +95,7 @@ func (m *Client) ListUnexpiredReservations(ctx context.Context) ([]Reservation, 
 	client := m.config.DynamoClient
 	keyCondition := expression.Key(GroupIDKey).Equal(expression.Value(m.config.GroupKey()))
 
-	now := Now()
+	now := m.clock.Now()
 	filter := expression.Name(ExpiresAtKey).GreaterThan(expression.Value(now.Unix()))
 
 	expr, err := expression.NewBuilder().
@@ -168,7 +167,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 	logger.Debug("starting shard reservation")
 	// 1. Is there an existing reservation for this group/worker, if so use that.
 	// conditional PutItem
-	now := Now()
+	now := c.clock.Now()
 
 	condition := expression.Or(
 		expression.AttributeNotExists(expression.Name(ExpiresAtKey)),
@@ -176,7 +175,7 @@ func (c *Client) ReserveShard(ctx context.Context) error {
 		expression.Name(ExpiresAtKey).LessThan(expression.Value(now.Unix())),
 	)
 
-	expires := Now().Add(c.config.ReservationTimeout)
+	expires := c.clock.Now().Add(c.config.ReservationTimeout)
 	update := expression.Set(expression.Name(WorkerIDKey), expression.Value(c.config.WorkerID)).
 		Set(expression.Name(ExpiresAtKey), expression.Value(expires.Unix()))
 
@@ -268,13 +267,13 @@ func (m *Client) RenewReservation(ctx context.Context) error {
 	}
 }
 
-func (m *Client) CommitRecord(ctx context.Context, sequence string) error {
+func (c *Client) CommitRecord(ctx context.Context, sequence string) error {
 	// sequence := record.Sequence
-	client := m.config.DynamoClient
+	client := c.config.DynamoClient
 
-	condition := expression.Name(WorkerIDKey).Equal(expression.Value(m.config.WorkerID))
+	condition := expression.Name(WorkerIDKey).Equal(expression.Value(c.config.WorkerID))
 
-	expires := Now().Add(m.config.ReservationTimeout)
+	expires := c.clock.Now().Add(c.config.ReservationTimeout)
 	update := expression.Set(expression.Name(ExpiresAtKey), expression.Value(expires.Unix())).
 		Set(expression.Name(LatestSequenceKey), expression.Value(sequence))
 
@@ -288,10 +287,10 @@ func (m *Client) CommitRecord(ctx context.Context, sequence string) error {
 
 	input := &dynamodb.UpdateItemInput{
 		Key: map[string]types.AttributeValue{
-			GroupIDKey: &types.AttributeValueMemberS{Value: m.config.GroupKey()},
-			ShardIDKey: &types.AttributeValueMemberS{Value: m.config.ShardID},
+			GroupIDKey: &types.AttributeValueMemberS{Value: c.config.GroupKey()},
+			ShardIDKey: &types.AttributeValueMemberS{Value: c.config.ShardID},
 		},
-		TableName:                 &m.config.ReservationTableName,
+		TableName:                 &c.config.ReservationTableName,
 		ConditionExpression:       expr.Condition(),
 		UpdateExpression:          expr.Update(),
 		ExpressionAttributeNames:  expr.Names(),
@@ -299,25 +298,25 @@ func (m *Client) CommitRecord(ctx context.Context, sequence string) error {
 		ReturnValues:              types.ReturnValueAllNew,
 	}
 
-	m.logger.Debug("commiting position", "sequence", sequence, "reservation_expires", expires, "group", m.config.GroupID, "shard", m.config.ShardID, "worker", m.config.WorkerID)
+	c.logger.Debug("commiting position", "sequence", sequence, "reservation_expires", expires, "group", c.config.GroupID, "shard", c.config.ShardID, "worker", c.config.WorkerID)
 	out, err := client.UpdateItem(ctx, input)
 	if err != nil {
 		var conditionFailed *types.ConditionalCheckFailedException
 		if errors.As(err, &conditionFailed) {
-			m.logger.Error("conditional check failed during commit ", "error", err)
-			m.reservation = nil
+			c.logger.Error("conditional check failed during commit ", "error", err)
+			c.reservation = nil
 			return ErrShardReserved
 
 		}
-		m.logger.Error("could not commit position", "error", err)
+		c.logger.Error("could not commit position", "error", err)
 		return err
 	}
 	var reservation Reservation
 	if err := attributevalue.UnmarshalMap(out.Attributes, &reservation); err != nil {
 		return err
 	}
-	m.logger.Debug("setting reservation", "reservation", reservation)
-	m.reservation = &reservation
+	c.logger.Debug("setting reservation", "reservation", reservation)
+	c.reservation = &reservation
 	return nil
 }
 func (c *Client) fetchClientReservation(ctx context.Context) (*Reservation, error) {

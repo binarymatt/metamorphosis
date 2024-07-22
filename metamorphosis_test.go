@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	ktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/coder/quartz"
 	"github.com/shoenig/test/must"
 	"github.com/stretchr/testify/mock"
 	"google.golang.org/protobuf/proto"
@@ -79,9 +80,8 @@ func TestInit_ReserveShard(t *testing.T) {
 
 func TestReserveShard(t *testing.T) {
 	now := time.Now()
-	Now = func() time.Time {
-		return now
-	}
+	mockedClock := quartz.NewMock(t)
+	mockedClock.Set(now)
 	ctx := context.Background()
 	config := testConfig()
 	expires := now.Unix()
@@ -150,6 +150,7 @@ func TestReserveShard(t *testing.T) {
 			dc.EXPECT().UpdateItem(ctx, input).Return(tc.out, tc.err).Once()
 			config.DynamoClient = dc
 			m := NewClient(config)
+			m.clock = mockedClock
 			err := m.ReserveShard(ctx)
 			if tc.expectedError == nil {
 				must.NoError(t, err)

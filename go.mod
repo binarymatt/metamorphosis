@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression v1.6.17
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.27.1
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.24.7
+	github.com/coder/quartz v0.1.0
 	github.com/lmittmann/tint v1.0.4
 	github.com/shoenig/test v1.7.2
 	github.com/stretchr/testify v1.8.4

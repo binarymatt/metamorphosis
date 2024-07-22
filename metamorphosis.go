@@ -7,6 +7,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/coder/quartz"
 
 	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 )
@@ -31,6 +32,7 @@ type Client struct {
 	logger               *slog.Logger
 	nextIterator         *string
 	iteratorCacheExpires time.Time
+	clock                quartz.Clock
 }
 
 func NewClient(config *Config) *Client {
@@ -38,11 +40,13 @@ func NewClient(config *Config) *Client {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	clock := quartz.NewReal()
 	return &Client{
 		config:               config,
 		logger:               logger.With("seed", config.Seed, "worker", config.WorkerID, "group", config.GroupID),
 		nextIterator:         aws.String(""),
-		iteratorCacheExpires: Now(),
+		iteratorCacheExpires: clock.Now(),
+		clock:                clock,
 	}
 }
 func (c *Client) Init(ctx context.Context) error {
