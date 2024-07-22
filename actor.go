@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/coder/quartz"
 
 	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
 )
@@ -22,6 +23,7 @@ type Actor struct {
 	SleepAfterProcessing time.Duration
 	batchSize            int32
 	shard                types.Shard
+	clock                quartz.Clock
 }
 
 func NewActor(shard types.Shard, cfg *Config, client *Client) *Actor {
@@ -37,6 +39,7 @@ func NewActor(shard types.Shard, cfg *Config, client *Client) *Actor {
 		SleepAfterProcessing: cfg.SleepAfterProcessing,
 		batchSize:            cfg.BatchSize,
 		shard:                shard,
+		clock:                quartz.NewReal(),
 	}
 	return actor
 }
@@ -49,7 +52,7 @@ func (a *Actor) WaitForParent(ctx context.Context) error {
 	if len(*a.shard.ParentShardId) == 0 {
 		return nil
 	}
-	expires := Now().Add(30 * time.Second)
+	expires := a.clock.Now().Add(30 * time.Second)
 	for {
 		if time.Now().After(expires) {
 			return ErrWaitTimePassed
@@ -64,6 +67,7 @@ func (a *Actor) WaitForParent(ctx context.Context) error {
 			return err
 		}
 		if res.LatestSequence == ShardClosed {
+			a.logger.Info("shard closed")
 			return nil
 		}
 		time.Sleep(200 * time.Millisecond)

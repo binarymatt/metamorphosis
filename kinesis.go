@@ -57,7 +57,7 @@ func (c *Client) getShardIterator(ctx context.Context) (*string, error) {
 	if c.reservation == nil {
 		return nil, ErrMissingReservation
 	}
-	now := Now()
+	now := c.clock.Now()
 	expiredCache := false
 	if now.After(c.iteratorCacheExpires) {
 		c.logger.Warn("iterator cache time is up", "cacheExpires", c.iteratorCacheExpires, "now", now)
@@ -84,7 +84,7 @@ func (c *Client) getShardIterator(ctx context.Context) (*string, error) {
 		}
 		c.logger.Debug("iterator result", "iterator", *out.ShardIterator, "last_sequence", c.reservation.LatestSequence, "shard", c.config.ShardID)
 		c.nextIterator = out.ShardIterator
-		c.iteratorCacheExpires = Now().Add(2 * time.Minute)
+		c.iteratorCacheExpires = c.clock.Now().Add(2 * time.Minute)
 	} else {
 		c.logger.Warn("getting cached iterator", "shard", c.config.ShardID)
 	}

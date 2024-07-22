@@ -16,9 +16,6 @@ import (
 
 func TestListUnexpiredReservations(t *testing.T) {
 	n := time.Now()
-	Now = func() time.Time {
-		return n
-	}
 	dc := mocks.NewDynamoDBAPI(t)
 	m := NewClient(NewConfig(
 		WithReservationTableName("metamorphosis_reservations"),
@@ -91,9 +88,6 @@ func TestReservationExpires(t *testing.T) {
 
 func TestCommitRecord(t *testing.T) {
 	now := time.Now()
-	Now = func() time.Time {
-		return now
-	}
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	config := testConfig(WithDynamoClient(dc))

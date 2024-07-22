@@ -12,6 +12,7 @@ import (
 	dtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/coder/quartz"
 	"github.com/shoenig/test/must"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/sync/errgroup"
@@ -101,9 +102,6 @@ func TestManager_shardStateKinesisError(t *testing.T) {
 
 func TestManager_LoopNoShards(t *testing.T) {
 	n := time.Now()
-	Now = func() time.Time {
-		return n
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	eg, ctx := errgroup.WithContext(ctx)
 	dc := mocks.NewDynamoDBAPI(t)
@@ -111,6 +109,9 @@ func TestManager_LoopNoShards(t *testing.T) {
 	config := testConfig(WithKinesisClient(kc), WithDynamoClient(dc))
 	config.ManagerLoopWaitTime = 100 * time.Millisecond
 	m := New(config)
+	mockedClock := quartz.NewMock(t)
+	mockedClock.Set(n)
+	m.clock = mockedClock
 	m.internalClient = NewClient(config)
 	kc.EXPECT().DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
 		StreamARN: aws.String("arn"),
@@ -148,9 +149,8 @@ func TestManager_LoopNoShards(t *testing.T) {
 func TestManager_LoopAvailableShard(t *testing.T) {
 	t.SkipNow()
 	n := time.Now()
-	Now = func() time.Time {
-		return n
-	}
+	mockedClock := quartz.NewMock(t)
+	mockedClock.Set(n)
 	ctx, cancel := context.WithCancel(context.Background())
 	eg, ctx := errgroup.WithContext(ctx)
 	dc := mocks.NewDynamoDBAPI(t)
@@ -162,6 +162,7 @@ func TestManager_LoopAvailableShard(t *testing.T) {
 		return nil
 	}
 	m := New(config)
+	m.clock = mockedClock
 	m.internalClient = NewClient(config)
 
 	// mock get available shards

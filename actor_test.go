@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/coder/quartz"
 	"github.com/shoenig/test/must"
 
 	metamorphosisv1 "github.com/binarymatt/metamorphosis/gen/metamorphosis/v1"
@@ -37,12 +38,12 @@ func TestNewActor(t *testing.T) {
 	must.Eq(t, cfg.WorkerID, actor.id)
 }
 func TestWaitForParent_ShardClosed(t *testing.T) {
-	Now = func() time.Time {
-		return time.Now()
-	}
+	mockedClock := quartz.NewMock(t)
+	mockedClock.Set(time.Now())
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
 	client := NewClient(testConfig(WithDynamoClient(dc)))
+	client.clock = mockedClock
 	actor := &Actor{
 		id: "test",
 		mc: client,
@@ -50,6 +51,7 @@ func TestWaitForParent_ShardClosed(t *testing.T) {
 			ParentShardId: aws.String("parentShard"),
 		},
 		logger: slog.Default(),
+		clock:  mockedClock,
 	}
 
 	dc.EXPECT().
@@ -75,12 +77,15 @@ func TestWaitForParent_ShardClosed(t *testing.T) {
 func TestWaitForParent_NoParentShard(t *testing.T) {
 	ctx := context.Background()
 	dc := mocks.NewDynamoDBAPI(t)
+	mockedClock := quartz.NewMock(t)
 	client := NewClient(testConfig(WithDynamoClient(dc)))
+	client.clock = mockedClock
 	actor := &Actor{
 		id:     "test",
 		mc:     client,
 		shard:  types.Shard{},
 		logger: slog.Default(),
+		clock:  mockedClock,
 	}
 	err := actor.WaitForParent(ctx)
 	must.NoError(t, err)
@@ -89,6 +94,8 @@ func TestWaitForParent_NoParentShard(t *testing.T) {
 func TestWaitForParent_UnknownError(t *testing.T) {
 	dc := mocks.NewDynamoDBAPI(t)
 	client := NewClient(testConfig(WithDynamoClient(dc)))
+	mockedClock := quartz.NewMock(t)
+	mockedClock.Set(time.Now())
 	actor := &Actor{
 		id: "test",
 		mc: client,
@@ -96,11 +103,9 @@ func TestWaitForParent_UnknownError(t *testing.T) {
 			ParentShardId: aws.String("parentShard"),
 		},
 		logger: slog.Default(),
+		clock:  mockedClock,
 	}
 	ctx := context.Background()
-	Now = func() time.Time {
-		return time.Now()
-	}
 	ErrOops := errors.New("oops")
 
 	dc.EXPECT().
@@ -119,9 +124,11 @@ func TestWaitForParent_UnknownError(t *testing.T) {
 func TestWork_NoParentReservation(t *testing.T) {
 	client, _, dc := setupTestClient(t)
 	ctx := context.Background()
-	Now = func() time.Time {
-		return time.Now().Add(-29999 * time.Millisecond)
-	}
+	mockedClock := quartz.NewMock(t)
+
+	// expired
+	mockedClock.Set(time.Now().Add(-29999 * time.Millisecond))
+
 	a := &Actor{
 		id: "test",
 		mc: client,
@@ -129,6 +136,7 @@ func TestWork_NoParentReservation(t *testing.T) {
 			ParentShardId: aws.String("parentShard"),
 		},
 		logger: slog.Default(),
+		clock:  mockedClock,
 	}
 	a.mc.reservation = &Reservation{}
 
@@ -149,11 +157,10 @@ func TestWork_ErrorsCases(t *testing.T) {
 	//dc := mocks.NewDynamoDBAPI(t)
 	//client := NewClient(testConfig(WithDynamoClient(dc)))
 	//client.reservation = &Reservation{}
+	mockedClock := quartz.NewMock(t)
+	mockedClock.Set(time.Now())
 	client, _, dc := setupTestClient(t)
 	ctx := context.Background()
-	Now = func() time.Time {
-		return time.Now()
-	}
 	defaultSetup := func() *Actor {
 		a := &Actor{
 			id: "test",
@@ -162,6 +169,7 @@ func TestWork_ErrorsCases(t *testing.T) {
 				ParentShardId: aws.String("parentShard"),
 			},
 			logger: slog.Default(),
+			clock:  mockedClock,
 		}
 		a.mc.reservation = &Reservation{}
 		return a
@@ -229,9 +237,6 @@ func TestWork_ContextDone(t *testing.T) {
 func TestWork_ShardClosed(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
-	Now = func() time.Time {
-		return now
-	}
 
 	client, _, dc := setupTestClient(t)
 	client.reservation = &Reservation{}
@@ -281,9 +286,6 @@ func TestProcessRecords_EmptyRecords(t *testing.T) {
 
 func TestProcessRecords_HappyPath(t *testing.T) {
 	n := time.Now()
-	Now = func() time.Time {
-		return n
-	}
 	unixNow := n.Unix()
 	records := []*metamorphosisv1.Record{
 		{Id: "test", Sequence: "testSequence"},
@@ -330,10 +332,7 @@ func TestProcessRecords_HappyPath(t *testing.T) {
 }
 
 func TestProcessRecords_processor_fails(t *testing.T) {
-	n := time.Now()
-	Now = func() time.Time {
-		return n
-	}
+	// n := time.Now()
 	records := []*metamorphosisv1.Record{
 		{Id: "test", Sequence: "testSequence"},
 	}
@@ -361,9 +360,6 @@ func TestProcessRecords_processor_fails(t *testing.T) {
 
 func TestProcessRecords_commit_fails(t *testing.T) {
 	n := time.Now()
-	Now = func() time.Time {
-		return n
-	}
 	unixNow := n.Unix()
 	records := []*metamorphosisv1.Record{
 		{Id: "test", Sequence: "testSequence"},
